@@ -4,6 +4,24 @@ public class Employee extends User {
     private String employeeId;
     private String jobTitle;
     private EmployeeRole role;
+    private Integer businessId = 1;
+    private boolean operator;
+
+    public Integer getBusinessId() {
+        return businessId;
+    }
+
+    public void setBusinessId(Integer businessId) {
+        this.businessId = businessId;
+    }
+
+    public boolean isOperator() {
+        return operator;
+    }
+
+    public void setOperator(boolean operator) {
+        this.operator = operator;
+    }
 
     //CONSTRUCTORS
     public Employee() {
@@ -17,14 +35,14 @@ public class Employee extends User {
             String empId,
             String jobTitle,
             EmployeeRole role
-    ){
+    ) {
         super(firstName, lastName, email, passwordHash);
         this.employeeId = empId;
         this.jobTitle = jobTitle;
         this.role = role;
     }
 
-    public Employee(Employee employee){
+    public Employee(Employee employee) {
         super(employee);
         this.employeeId = employee.employeeId;
         this.jobTitle = employee.jobTitle;

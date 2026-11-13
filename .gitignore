@@ -5,6 +5,13 @@ HELP.md
 .env.*
 !.env.example
 
+### Local SQLite databases and their journals ###
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+__pycache__/
+
 ### Maven and Java build output ###
 target/
 .mvn/wrapper/maven-wrapper.jar

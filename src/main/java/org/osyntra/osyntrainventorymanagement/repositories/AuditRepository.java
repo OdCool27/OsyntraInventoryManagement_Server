@@ -3,27 +3,31 @@ package org.osyntra.osyntrainventorymanagement.repositories;
 import org.osyntra.osyntrainventorymanagement.models.AuditLog;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
+
 import java.util.*;
 
 @Repository
 public class AuditRepository {
     private final JdbcClient jdbcClient;
+    private final org.osyntra.osyntrainventorymanagement.services.TenantContext tenant;
 
-    public AuditRepository(JdbcClient jdbcClient) {
+    public AuditRepository(JdbcClient jdbcClient, org.osyntra.osyntrainventorymanagement.services.TenantContext tenant) {
         this.jdbcClient = jdbcClient;
+        this.tenant = tenant;
     }
 
     public void create(int userId, String action, String entityType, String entityId, String oldValue, String newValue) {
         jdbcClient.sql("""
-                INSERT INTO audit_logs(user_id, action, entity_type, entity_id, old_value, new_value)
-                VALUES (:user, :action, :type, :id, :old, :new)
-                """).param("user", userId).param("action", action).param("type", entityType)
-                .param("id", entityId).param("old", oldValue).param("new", newValue).update();
+                        INSERT INTO audit_logs(user_id, action, entity_type, entity_id, old_value, new_value, business_id)
+                        VALUES (:user, :action, :type, :id, :old, :new, :business)
+                        """).param("user", userId).param("action", action).param("type", entityType)
+                .param("id", entityId).param("old", oldValue).param("new", newValue).param("business", tenant.businessId()).update();
     }
 
     public List<AuditLog> findAll(String entityType, String entityId, int limit, int offset) {
-        StringBuilder sql = new StringBuilder("SELECT * FROM audit_logs WHERE 1 = 1");
+        StringBuilder sql = new StringBuilder("SELECT * FROM audit_logs WHERE business_id = :business");
         Map<String, Object> params = new HashMap<>();
+        params.put("business", tenant.businessId());
         if (entityType != null) {
             sql.append(" AND entity_type = :type");
             params.put("type", entityType);

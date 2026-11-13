@@ -1,280 +1,253 @@
 package org.osyntra.osyntrainventorymanagement;
 
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
-import org.osyntra.osyntrainventorymanagement.models.*;
-import org.osyntra.osyntrainventorymanagement.repositories.*;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.http.MediaType;
-import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.transaction.annotation.Transactional;
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.ObjectMapper;
 
-import java.util.UUID;
+import java.util.*;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.*;
 
-@SpringBootTest(properties = {
-        "spring.flyway.default-schema=sentra_mvp_test",
-        "spring.datasource.hikari.connection-init-sql=SET search_path TO sentra_mvp_test",
-        "SENTRA_ADMIN_EMAIL=", "SENTRA_ADMIN_PASSWORD="
-})
-@AutoConfigureMockMvc
-@Transactional
-class InventoryApiTests {
-    @Autowired private MockMvc mvc;
-    @Autowired private ObjectMapper objectMapper;
-    @Autowired private EmployeeRepository employeeRepository;
-    @Autowired private PasswordEncoder passwordEncoder;
-    @Autowired private JdbcClient jdbcClient;
-
-    private static final String ADMIN = "admin-test@example.com";
-    private static final String PASSWORD = "Test-only-password-123";
-
-    @BeforeEach
-    void createEmployee() {
-        employeeRepository.save(new Employee("Test", "Admin", ADMIN, passwordEncoder.encode(PASSWORD),
-                null, "Administrator", EmployeeRole.ADMIN));
+class InventoryApiTests extends MvpTestSupport {
+    @Test
+    void categoryCrudIsTenantScopedAndProtectsProductReferences() throws Exception {
+        int id = send("/api/categories", Map.of("name", "Original"), "OWNER", 201).get("id").asInt();
+        putJson("/api/categories/" + id, Map.of("name", "Renamed"), "MANAGER", 200);
+        assertEquals("Renamed", getJson("/api/categories/" + id, "CLERK", 200).get("name").asString());
+        getJson("/api/categories/" + id, "OTHER", 404);
+        var product = productBody("CATEGORIZED");
+        product.put("categoryId", id);
+        send("/api/products", product, "OWNER", 201);
+        mvc.perform(delete("/api/categories/" + id).with(as("OWNER"))).andExpect(status().isConflict());
+        int unused = send("/api/categories", Map.of("name", "Unused"), "OWNER", 201).get("id").asInt();
+        mvc.perform(delete("/api/categories/" + unused).with(as("MANAGER"))).andExpect(status().isNoContent());
     }
 
     @Test
-    void productInventoryAndAuditWorkflow() throws Exception {
-        String id = createProduct("BRAKE-1", "Toyota", "Corolla", "2018", null);
-        mvc.perform(post("/api/inventory/" + id).with(user(ADMIN).roles("ADMIN"))
-                .contentType(MediaType.APPLICATION_JSON).content("{\"quantityOnHand\":5,\"reorderLevel\":3}"))
-                .andExpect(status().isCreated()).andExpect(jsonPath("$.availableQuantity").value(5));
-        mvc.perform(post("/api/inventory/" + id + "/add").with(user(ADMIN).roles("ADMIN"))
-                .contentType(MediaType.APPLICATION_JSON).content("{\"quantity\":4}"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.quantityOnHand").value(9));
-        mvc.perform(post("/api/inventory/" + id + "/remove").with(user(ADMIN).roles("MANAGER"))
-                .contentType(MediaType.APPLICATION_JSON).content("{\"quantity\":6}"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.quantityOnHand").value(3))
-                .andExpect(jsonPath("$.lowStock").value(true));
-        mvc.perform(put("/api/inventory/" + id + "/reorder-level").with(user(ADMIN).roles("ADMIN"))
-                .contentType(MediaType.APPLICATION_JSON).content("{\"reorderLevel\":2}"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.lowStock").value(false));
-        mvc.perform(put("/api/inventory/" + id + "/quantity").with(user(ADMIN).roles("ADMIN"))
-                .contentType(MediaType.APPLICATION_JSON).content("{\"quantity\":0}"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.availableQuantity").value(0));
-        mvc.perform(get("/api/reports/summary").with(user(ADMIN).roles("MANAGER")))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.totalProducts").value(1))
-                .andExpect(jsonPath("$.totalUnits").value(0)).andExpect(jsonPath("$.outOfStockProducts").value(1));
-        mvc.perform(get("/api/reports/low-stock").with(user(ADMIN).roles("ADMIN")))
-                .andExpect(status().isOk()).andExpect(jsonPath("$[0].product.itemId").value(id));
-        mvc.perform(get("/api/reports/out-of-stock").with(user(ADMIN).roles("ADMIN")))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1));
-        mvc.perform(get("/api/audit").param("entityId", id).with(user(ADMIN).roles("MANAGER")))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(6))
-                .andExpect(jsonPath("$[0].action").value("QUANTITY_SET"))
-                .andExpect(jsonPath("$[0].oldValue").value("3"))
-                .andExpect(jsonPath("$[0].newValue").value("0"))
-                .andExpect(jsonPath("$[0].userId").isNumber());
+    void isolatesCatalogStockCategoriesLocationsAuditAndReports() throws Exception {
+        String own = stocked("SHARED-SKU", 5);
+        String other = product("SHARED-SKU", "OTHER");
+        open(other, 8, "OTHER", 201);
+        assertEquals(1, getJson("/api/products", "OWNER", 200).size());
+        getJson("/api/products/" + other, "OWNER", 404);
+        putJson("/api/products/" + other, productBody("TAMPER"), "OWNER", 404);
+        send("/api/inventory/" + other + "/movements", movement("RECEIPT", 1, "tamper"), "OWNER", 404);
+        getJson("/api/inventory/" + own + "?locationId=" + otherLocation, "OWNER", 404);
+        assertEquals(5, getJson("/api/reports/summary", "OWNER", 200).get("total_units").asInt());
+        assertEquals(0, getJson("/api/audit?entityId=" + other, "OWNER", 200).size());
+        var category = send("/api/categories", Map.of("name", "Other"), "OTHER", 201).get("id").asInt();
+        var request = productBody("WRONG-CATEGORY");
+        request.put("categoryId", category);
+        send("/api/products", request, "OWNER", 404);
+        mvc.perform(get("/api/products").with(as("OWNER")).header("X-Business-Id", otherBusiness))
+                .andExpect(status().isOk()).andExpect(jsonPath("$[0].itemId").value(own));
     }
 
     @Test
-    void rejectsOverRemovalWithoutChangingQuantityOrAudit() throws Exception {
-        String id = createStockedProduct(2, 1);
-        mvc.perform(post("/api/inventory/" + id + "/remove").with(user(ADMIN).roles("ADMIN"))
-                .contentType(MediaType.APPLICATION_JSON).content("{\"quantity\":3}"))
-                .andExpect(status().isConflict());
-        mvc.perform(get("/api/inventory/" + id).with(user(ADMIN).roles("STAFF")))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.quantityOnHand").value(2));
-        assertEquals(2L, jdbcClient.sql("SELECT count(*) FROM audit_logs WHERE entity_id = :id")
-                .param("id", id).query(Long.class).single());
+    void databaseRejectsCrossTenantReferencesAndInvalidBalances() throws Exception {
+        String p = stocked("DB-CONSTRAINT", 1);
+        assertEquals(1, db.number("PRAGMA foreign_keys"));
+        assertEquals("wal", db.one("PRAGMA journal_mode").get("journal_mode"));
+        assertThrows(org.springframework.dao.DataIntegrityViolationException.class, () -> db.update("INSERT INTO inventory(product_id,business_id,location_id) VALUES(?,?,?)", p, otherBusiness, otherLocation));
+        assertThrows(org.springframework.dao.DataIntegrityViolationException.class, () -> db.update("UPDATE inventory SET quantity_on_hand=-1 WHERE product_id=?", p));
     }
 
     @Test
-    void combinesCategoryVehicleAndTextFilters() throws Exception {
-        String categoryBody = mvc.perform(post("/api/categories").with(user(ADMIN).roles("ADMIN"))
-                .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"BRAKING\"}"))
-                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
-        int categoryId = objectMapper.readTree(categoryBody).get("id").asInt();
-        String match = createProduct("FILTER-MATCH", "Toyota", "Corolla", "2018", categoryId);
-        createProduct("FILTER-OTHER", "Honda", "Civic", "2019", categoryId);
-        mvc.perform(post("/api/inventory/" + match).with(user(ADMIN).roles("ADMIN"))
-                .contentType(MediaType.APPLICATION_JSON).content("{\"quantityOnHand\":1,\"reorderLevel\":1}"))
-                .andExpect(status().isCreated());
-        for (String endpoint : new String[]{"/api/products", "/api/inventory"}) {
-            mvc.perform(get(endpoint).with(user(ADMIN).roles("STAFF"))
-                    .param("search", "FILTER-").param("category", "braking").param("make", "toyota")
-                    .param("model", "Corolla").param("year", "2018"))
-                    .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1));
-        }
-        mvc.perform(get("/api/products").with(user(ADMIN).roles("STAFF")).param("year", "2020"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(0));
-        mvc.perform(get("/api/inventory").with(user(ADMIN).roles("STAFF")).param("lowStock", "true"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1));
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"STAFF", "SUPERVISOR"})
-    void readOnlyRolesCannotAdminister(String role) throws Exception {
-        String id = createStockedProduct(5, 1);
-        mvc.perform(get("/api/products").with(user(ADMIN).roles(role))).andExpect(status().isOk());
-        mvc.perform(get("/api/inventory").with(user(ADMIN).roles(role))).andExpect(status().isOk());
-        mvc.perform(post("/api/products").with(user(ADMIN).roles(role))
-                .contentType(MediaType.APPLICATION_JSON).content(productJson("DENIED", null, null, null, null)))
-                .andExpect(status().isForbidden());
-        mvc.perform(put("/api/products/" + id).with(user(ADMIN).roles(role))
-                .contentType(MediaType.APPLICATION_JSON).content(productJson("DENIED", null, null, null, null)))
-                .andExpect(status().isForbidden());
-        mvc.perform(delete("/api/products/" + id).with(user(ADMIN).roles(role))).andExpect(status().isForbidden());
-        mvc.perform(post("/api/inventory/" + id + "/add").with(user(ADMIN).roles(role))
-                .contentType(MediaType.APPLICATION_JSON).content("{\"quantity\":1}")).andExpect(status().isForbidden());
-        mvc.perform(post("/api/inventory/" + id + "/remove").with(user(ADMIN).roles(role))
-                .contentType(MediaType.APPLICATION_JSON).content("{\"quantity\":1}")).andExpect(status().isForbidden());
-        mvc.perform(put("/api/inventory/" + id + "/quantity").with(user(ADMIN).roles(role))
-                .contentType(MediaType.APPLICATION_JSON).content("{\"quantity\":1}")).andExpect(status().isForbidden());
-        mvc.perform(put("/api/inventory/" + id + "/reorder-level").with(user(ADMIN).roles(role))
-                .contentType(MediaType.APPLICATION_JSON).content("{\"reorderLevel\":1}")).andExpect(status().isForbidden());
-        mvc.perform(get("/api/reports/summary").with(user(ADMIN).roles(role))).andExpect(status().isForbidden());
-        mvc.perform(get("/api/audit").with(user(ADMIN).roles(role))).andExpect(status().isForbidden());
+    void operatorProvisionsButCannotReadTenantBusinessData() throws Exception {
+        var owner = Map.of("firstName", "New", "lastName", "Owner", "email", "new@test.local", "password", PASSWORD, "jobTitle", "Owner", "role", "OWNER");
+        var business = send("/api/platform/businesses", Map.of("name", "Provisioned", "locationName", "Shop", "owner", owner), "OPERATOR", 201);
+        assertTrue(business.get("id").asInt() > otherBusiness);
+        getJson("/api/platform/businesses", "OWNER", 403);
+        getJson("/api/products", "OPERATOR", 403);
+        getJson("/api/audit", "OPERATOR", 403);
+        assertEquals(1, db.number("SELECT count(*) FROM platform_audit WHERE business_id=?", business.get("id").asInt()));
+        var employee = employees.findByEmail("new@test.local").orElseThrow();
+        assertEquals(business.get("id").asInt(), employee.getBusinessId());
+        assertTrue(passwords.matches(PASSWORD, employee.getPasswordHash()));
     }
 
     @Test
-    void authenticatesActiveEmployeeAndRejectsBadCredentials() throws Exception {
-        mvc.perform(get("/api/auth/me").with(httpBasic(ADMIN, PASSWORD))).andExpect(status().isOk())
-                .andExpect(jsonPath("$.email").value(ADMIN)).andExpect(jsonPath("$.passwordHash").doesNotExist());
-        mvc.perform(get("/api/auth/me").with(httpBasic(ADMIN, "wrong"))).andExpect(status().isUnauthorized());
+    void employeeLifecyclePreventsEscalationAndLastOwnerRemoval() throws Exception {
+        var request = new LinkedHashMap<String, Object>(Map.of("firstName", "Worker", "lastName", "One", "email", "worker@test.local", "password", PASSWORD, "jobTitle", "Clerk", "role", "CLERK"));
+        var employee = send("/api/employees", request, "MANAGER", 201);
+        request.put("role", "OWNER");
+        request.put("email", "privileged@test.local");
+        send("/api/employees", request, "MANAGER", 403);
+        var edit = Map.of("firstName", "Worker", "lastName", "One", "jobTitle", "Clerk", "role", "CLERK", "status", "DEACTIVATED");
+        putJson("/api/employees/" + employee.get("id").asInt(), edit, "MANAGER", 200);
+        mvc.perform(get("/api/auth/me").with(httpBasic("worker@test.local", PASSWORD))).andExpect(status().isUnauthorized());
+        putJson("/api/employees/" + ownerId, edit, "OWNER", 409);
+        putJson("/api/employees/" + ownerId, edit, "MANAGER", 403);
+        putJson("/api/employees/" + employee.get("id").asInt(), edit, "OTHER", 404);
+    }
+
+    @Test
+    void authenticatesAndEnforcesOperationalRoles() throws Exception {
+        mvc.perform(get("/api/auth/me").with(httpBasic("owner@test.local", PASSWORD))).andExpect(status().isOk()).andExpect(jsonPath("$.businessId").value(1));
+        mvc.perform(get("/api/auth/me").with(httpBasic("owner@test.local", "bad"))).andExpect(status().isUnauthorized());
         mvc.perform(get("/api/products")).andExpect(status().isUnauthorized());
-        jdbcClient.sql("UPDATE users SET status = 'SUSPENDED' WHERE email = :email").param("email", ADMIN).update();
-        mvc.perform(get("/api/auth/me").with(httpBasic(ADMIN, PASSWORD))).andExpect(status().isUnauthorized());
-    }
-
-    @Test
-    void onlyAdminCanCreateEmployeeAndPasswordsAreHashed() throws Exception {
-        String body = """
-                {"firstName":"Sam","lastName":"Worker","email":"staff-test@example.com",
-                 "password":"A-test-password-123","jobTitle":"Clerk","role":"STAFF"}
-                """;
-        mvc.perform(post("/api/employees").with(user(ADMIN).roles("MANAGER"))
-                .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isForbidden());
-        mvc.perform(post("/api/employees").with(user(ADMIN).roles("ADMIN"))
-                .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isCreated())
-                .andExpect(jsonPath("$.role").value("STAFF")).andExpect(jsonPath("$.passwordHash").doesNotExist());
-        Employee employee = employeeRepository.findByEmail("staff-test@example.com").orElseThrow();
-        assertTrue(passwordEncoder.matches("A-test-password-123", employee.getPasswordHash()));
-        mvc.perform(post("/api/products").with(httpBasic(employee.getEmail(), "A-test-password-123"))
-                .contentType(MediaType.APPLICATION_JSON).content(productJson("NO", null, null, null, null)))
-                .andExpect(status().isForbidden());
-    }
-
-    @Test
-    void validatesRequestsAndMissingResources() throws Exception {
-        mvc.perform(post("/api/products").with(user(ADMIN).roles("ADMIN"))
-                .contentType(MediaType.APPLICATION_JSON).content("{}")).andExpect(status().isBadRequest());
-        mvc.perform(post("/api/products").with(user(ADMIN).roles("ADMIN"))
-                .contentType(MediaType.APPLICATION_JSON).content(productJson("BAD", "Toyota", null, null, null)))
-                .andExpect(status().isBadRequest());
-        mvc.perform(get("/api/products/not-a-uuid").with(user(ADMIN).roles("STAFF"))).andExpect(status().isBadRequest());
-        mvc.perform(get("/api/inventory").param("limit", "0").with(user(ADMIN).roles("STAFF")))
-                .andExpect(status().isBadRequest());
-        mvc.perform(get("/api/products/" + UUID.randomUUID()).with(user(ADMIN).roles("STAFF")))
-                .andExpect(status().isNotFound());
-        mvc.perform(post("/api/inventory/" + UUID.randomUUID()).with(user(ADMIN).roles("ADMIN"))
-                .contentType(MediaType.APPLICATION_JSON).content("{\"quantityOnHand\":1,\"reorderLevel\":0}"))
-                .andExpect(status().isNotFound());
-        mvc.perform(post("/api/products").with(user(ADMIN).roles("ADMIN"))
-                .contentType(MediaType.APPLICATION_JSON).content(productJson("BAD-CATEGORY", null, null, null, 2147483647)))
-                .andExpect(status().isNotFound());
-    }
-
-    @Test
-    void rejectsNegativeInputsAndZeroAdjustments() throws Exception {
-        String id = createStockedProduct(1, 1);
-        for (String endpoint : new String[]{"/add", "/remove"}) {
-            mvc.perform(post("/api/inventory/" + id + endpoint).with(user(ADMIN).roles("ADMIN"))
-                    .contentType(MediaType.APPLICATION_JSON).content("{\"quantity\":0}"))
-                    .andExpect(status().isBadRequest());
+        String p = stocked("PERMISSION", 1);
+        for (String role : List.of("CLERK", "CASHIER")) {
+            send("/api/products", productBody("DENIED"), role, 403);
+            send("/api/inventory/" + p + "/movements", movement("RECEIPT", 1, role), role, 403);
+            getJson("/api/reports/summary", role, 403);
         }
-        mvc.perform(put("/api/inventory/" + id + "/quantity").with(user(ADMIN).roles("ADMIN"))
-                .contentType(MediaType.APPLICATION_JSON).content("{\"quantity\":-1}")).andExpect(status().isBadRequest());
-        mvc.perform(put("/api/inventory/" + id + "/reorder-level").with(user(ADMIN).roles("ADMIN"))
-                .contentType(MediaType.APPLICATION_JSON).content("{\"reorderLevel\":-1}")).andExpect(status().isBadRequest());
+        db.update("UPDATE users SET status='SUSPENDED' WHERE email='owner@test.local'");
+        mvc.perform(get("/api/auth/me").with(httpBasic("owner@test.local", PASSWORD))).andExpect(status().isUnauthorized());
     }
 
     @Test
-    void preventsDuplicateInventory() throws Exception {
-        String id = createStockedProduct(1, 0);
-        mvc.perform(post("/api/inventory/" + id).with(user(ADMIN).roles("ADMIN"))
-                .contentType(MediaType.APPLICATION_JSON).content("{\"quantityOnHand\":1,\"reorderLevel\":0}"))
-                .andExpect(status().isConflict());
+    void catalogLookupArchiveUniquenessAndValidation() throws Exception {
+        var body = productBody("SKU-ONE");
+        body.put("barcode", " 123456789 ");
+        body.put("minStockThreshold", 7);
+        String p = send("/api/products", body, "OWNER", 201).get("itemId").asString();
+        assertEquals(1, getJson("/api/products?barcode=123456789", "CLERK", 200).size());
+        send("/api/products", body, "OWNER", 409);
+        body.put("unitPrice", -1);
+        send("/api/products", body, "OWNER", 400);
+        send("/api/products", Map.of(), "OWNER", 400);
+        mvc.perform(delete("/api/products/" + p).with(as("MANAGER"))).andExpect(status().isNoContent());
+        assertEquals(0, getJson("/api/products", "CLERK", 200).size());
+        assertFalse(getJson("/api/products/" + p, "OWNER", 200).get("active").asBoolean());
+        assertEquals(1, getJson("/api/products?includeInactive=true", "OWNER", 200).size());
+        getJson("/api/products?limit=0", "OWNER", 400);
     }
 
     @Test
-    void preventsDuplicateSku() throws Exception {
-        createProduct("UNIQUE", null, null, null, null);
-        mvc.perform(post("/api/products").with(user(ADMIN).roles("ADMIN"))
-                .contentType(MediaType.APPLICATION_JSON).content(productJson("UNIQUE", null, null, null, null)))
-                .andExpect(status().isConflict());
+    void verifiedRelationalFitmentSupportsMultipleProductsAndRanges() throws Exception {
+        String a = product("AIR-ONE", "OWNER"), b = product("AIR-TWO", "OWNER");
+        var request = new LinkedHashMap<String, Object>(Map.of("make", "Honda", "model", "Civic", "yearFrom", 2006, "yearTo", 2011, "source", "Verified manufacturer catalog fixture", "verified", true));
+        String f = send("/api/fitments", request, "MANAGER", 201).get("id").asString();
+        send("/api/products/" + a + "/fitments/" + f, Map.of(), "OWNER", 200);
+        send("/api/products/" + b + "/fitments/" + f, Map.of(), "OWNER", 200);
+        assertEquals(2, getJson("/api/products?make=honda&model=civic&year=2009", "CLERK", 200).size());
+        assertEquals(0, getJson("/api/products?make=Honda&model=Civic&year=2012", "CLERK", 200).size());
+        request.put("engine", "1.8L");
+        String specific = send("/api/fitments", request, "OWNER", 201).get("id").asString();
+        String c = product("ENGINE-SPECIFIC", "OWNER");
+        send("/api/products/" + c + "/fitments/" + specific, Map.of(), "OWNER", 200);
+        assertEquals(2, getJson("/api/products?make=Honda&model=Civic&year=2009", "OWNER", 200).size());
+        assertEquals(3, getJson("/api/products?make=Honda&model=Civic&year=2009&engine=1.8L", "OWNER", 200).size());
+        request.put("verified", false);
+        send("/api/fitments", request, "OWNER", 400);
+        send("/api/products/" + a + "/fitments/" + f, Map.of(), "OTHER", 404);
+        String other = product("OTHER-PART", "OTHER");
+        send("/api/products/" + other + "/fitments/" + f, Map.of(), "OTHER", 404);
     }
 
     @Test
-    void managerCanEditAndDeactivateProducts() throws Exception {
-        String id = createStockedProduct(5, 1);
-        mvc.perform(put("/api/products/" + id).with(user(ADMIN).roles("MANAGER"))
-                .contentType(MediaType.APPLICATION_JSON).content(productJson("EDITED", "Honda", "Civic", "2020", null)))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.sku").value("EDITED"));
-        mvc.perform(delete("/api/products/" + id).with(user(ADMIN).roles("MANAGER")))
-                .andExpect(status().isNoContent());
-        mvc.perform(get("/api/products").with(user(ADMIN).roles("STAFF")))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(0));
-        mvc.perform(get("/api/inventory").with(user(ADMIN).roles("STAFF")))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(0));
-        mvc.perform(get("/api/products/" + id).with(user(ADMIN).roles("STAFF")))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.active").value(false));
-        mvc.perform(post("/api/inventory/" + id + "/add").with(user(ADMIN).roles("ADMIN"))
-                .contentType(MediaType.APPLICATION_JSON).content("{\"quantity\":1}")).andExpect(status().isConflict());
+    void movementsAreReasonCodedAtomicAndIdempotent() throws Exception {
+        String p = stocked("MOVEMENT", 5);
+        var move = movement("DAMAGE", 2, "damage-once");
+        send("/api/inventory/" + p + "/movements", move, "MANAGER", 200);
+        send("/api/inventory/" + p + "/movements", move, "MANAGER", 200);
+        assertEquals(3, quantity(p));
+        send("/api/inventory/" + p + "/movements", movement("DAMAGE", 3, "damage-once"), "OWNER", 409);
+        send("/api/inventory/" + p + "/movements", movement("DAMAGE", 4, "too-many"), "OWNER", 409);
+        send("/api/inventory/" + p + "/movements", movement("RECEIPT", 0, "zero"), "OWNER", 400);
+        assertEquals(2, db.number("SELECT count(*) FROM stock_movements WHERE product_id=?", p));
+        assertEquals(quantity(p), db.number("SELECT sum(delta_on_hand) FROM stock_movements WHERE product_id=?", p));
+        assertEquals(1, getJson("/api/inventory/alerts", "OWNER", 200).size());
+        send("/api/inventory/" + p + "/movements", Map.of("type", "DAMAGE", "quantity", 1, "requestId", "no-reason"), "OWNER", 400);
     }
 
     @Test
-    void databaseFunctionItselfPreventsNegativeStock() throws Exception {
-        String id = createStockedProduct(1, 0);
-        assertThrows(org.springframework.dao.DataIntegrityViolationException.class,
-                () -> jdbcClient.sql("SELECT adjust_inventory(:id, -2, FALSE)")
-                        .param("id", UUID.fromString(id)).query(Integer.class).single());
+    void stockIsLocationSpecificAndOverflowIsRejected() throws Exception {
+        String p = stocked("LOCATION", Integer.MAX_VALUE);
+        send("/api/inventory/" + p + "/movements", movement("RECEIPT", 1, "overflow"), "OWNER", 409);
+        int location = send("/api/locations", Map.of("name", "Back room"), "OWNER", 201).get("id").asInt();
+        send("/api/inventory/" + p + "?locationId=" + location, Map.of("quantityOnHand", 2, "reason", "OPENING_COUNT", "requestId", "backroom"), "OWNER", 201);
+        assertEquals(Integer.MAX_VALUE, quantity(p));
+        assertEquals(2, getJson("/api/inventory/" + p + "?locationId=" + location, "OWNER", 200).get("quantity_on_hand").asInt());
     }
 
     @Test
-    void swaggerDescribesEndpointsAndBasicAuthentication() throws Exception {
+    void resumableCountNeedsApprovalAndDetectsStockDrift() throws Exception {
+        String p = stocked("COUNT-SKU", 5);
+        String count = send("/api/counts", Map.of(), "CLERK", 201).get("id").asString();
+        putJson("/api/counts/" + count + "/lines", Map.of("code", "COUNT-SKU", "quantity", 3), "CLERK", 200);
+        assertEquals(3, getJson("/api/counts/" + count, "CLERK", 200).get("lines").get(0).get("counted_quantity").asInt());
+        send("/api/counts/" + count + "/submit", Map.of(), "CLERK", 200);
+        send("/api/counts/" + count + "/approve", Map.of(), "CLERK", 403);
+        send("/api/inventory/" + p + "/movements", movement("RECEIPT", 1, "drift"), "OWNER", 200);
+        send("/api/counts/" + count + "/approve", Map.of(), "MANAGER", 409);
+        assertEquals(6, quantity(p));
+        send("/api/counts/" + count + "/reopen", Map.of(), "MANAGER", 200);
+        putJson("/api/counts/" + count + "/lines", Map.of("code", "COUNT-SKU", "quantity", 3), "CLERK", 200);
+        send("/api/counts/" + count + "/submit", Map.of(), "CLERK", 200);
+        send("/api/counts/" + count + "/approve", Map.of(), "MANAGER", 200);
+        send("/api/counts/" + count + "/approve", Map.of(), "MANAGER", 200);
+        assertEquals(3, quantity(p));
+        assertEquals(1, db.number("SELECT count(*) FROM stock_movements WHERE reference_id=? AND movement_type='COUNT'", count));
+        getJson("/api/counts/" + count, "OTHER", 404);
+    }
+
+    @Test
+    void openingCountsCanInitializePreviouslyUnstockedProducts() throws Exception {
+        String p = product("COUNT-OPENING", "OWNER");
+        String count = send("/api/counts", Map.of(), "CLERK", 201).get("id").asString();
+        putJson("/api/counts/" + count + "/lines", Map.of("code", "COUNT-OPENING", "quantity", 4), "CLERK", 200);
+        send("/api/counts/" + count + "/submit", Map.of(), "CLERK", 200);
+        send("/api/counts/" + count + "/approve", Map.of(), "OWNER", 200);
+        assertEquals(4, quantity(p));
+    }
+
+    @Test
+    void csvPreviewShowsErrorsAndCommitIsAllOrNothing() throws Exception {
+        String p = product("CSV-ONE", "OWNER"), q = product("CSV-TWO", "OWNER");
+        String invalid = send("/api/imports/opening/preview", Map.of("csv", "sku,quantity,reorderLevel\nCSV-ONE,4,2\nMISSING,-1,0\n"), "OWNER", 200).get("id").asString();
+        send("/api/imports/opening/" + invalid + "/commit", Map.of(), "OWNER", 409);
+        assertEquals(0, db.number("SELECT count(*) FROM inventory WHERE product_id=?", p));
+        String valid = send("/api/imports/opening/preview", Map.of("csv", "sku,quantity,reorderLevel\r\n\"CSV-ONE\",4,2\r\nCSV-TWO,3,1\r\n"), "OWNER", 200).get("id").asString();
+        send("/api/imports/opening/" + valid + "/commit", Map.of(), "MANAGER", 200);
+        send("/api/imports/opening/" + valid + "/commit", Map.of(), "MANAGER", 200);
+        assertEquals(4, quantity(p));
+        assertEquals(3, quantity(q));
+        getJson("/api/imports/opening/" + valid, "OTHER", 404);
+    }
+
+    @Test
+    void swaggerDocumentsNewEndpoints() throws Exception {
         mvc.perform(get("/v3/api-docs")).andExpect(status().isOk())
-                .andExpect(jsonPath("$.paths['/api/inventory/{productId}/add']").exists())
-                .andExpect(jsonPath("$.components.schemas.StockRequest.properties.quantity.type").value("integer"))
-                .andExpect(jsonPath("$.components.schemas.ProductRequest.properties.unitPrice.type").value("number"))
+                .andExpect(jsonPath("$.paths['/api/orders/{id}/payment']").exists())
+                .andExpect(jsonPath("$.paths['/api/counts/{id}/approve']").exists())
                 .andExpect(jsonPath("$.components.securitySchemes.basicAuth.scheme").value("basic"));
         mvc.perform(get("/swagger-ui/index.html")).andExpect(status().isOk());
     }
 
-    private String createStockedProduct(int quantity, int reorder) throws Exception {
-        String id = createProduct("STOCKED", null, null, null, null);
-        mvc.perform(post("/api/inventory/" + id).with(user(ADMIN).roles("ADMIN"))
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"quantityOnHand\":" + quantity + ",\"reorderLevel\":" + reorder + "}"))
-                .andExpect(status().isCreated());
-        return id;
+    @Test
+    void scannerCodesAreUnambiguousAndCsvRejectsMalformedOrDuplicateRows() throws Exception {
+        var body = productBody("CODE-A");
+        body.put("barcode", "CODE-B");
+        send("/api/products", body, "OWNER", 201);
+        send("/api/products", productBody("CODE-B"), "OWNER", 409);
+        assertThrows(org.springframework.web.server.ResponseStatusException.class,
+                () -> org.osyntra.osyntrainventorymanagement.services.CsvSupport.parse("sku,quantity,reorderLevel\n\"unclosed"));
+        var preview = send("/api/imports/opening/preview", Map.of("csv", "sku,quantity,reorderLevel\nCODE-A,1,0\nCODE-A,2,0\n"), "OWNER", 200);
+        assertFalse(preview.get("lines").get(1).get("error").isNull());
+        send("/api/imports/opening/" + preview.get("id").asString() + "/commit", Map.of(), "OWNER", 409);
     }
 
-    private String createProduct(String sku, String make, String model, String year, Integer category) throws Exception {
-        String response = mvc.perform(post("/api/products").with(user(ADMIN).roles("ADMIN"))
-                .contentType(MediaType.APPLICATION_JSON).content(productJson(sku, make, model, year, category)))
-                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
-        JsonNode json = objectMapper.readTree(response);
-        return json.get("itemId").asString();
+    @Test
+    void approvalCannotCountAwayCheckoutReservations() throws Exception {
+        String p = stocked("RESERVED-COUNT", 3);
+        order(p, 2);
+        String count = send("/api/counts", Map.of(), "CLERK", 201).get("id").asString();
+        putJson("/api/counts/" + count + "/lines", Map.of("code", "RESERVED-COUNT", "quantity", 1), "CLERK", 200);
+        send("/api/counts/" + count + "/submit", Map.of(), "CLERK", 200);
+        send("/api/counts/" + count + "/approve", Map.of(), "MANAGER", 409);
+        assertEquals(3, quantity(p));
+        assertEquals(2, reserved(p));
     }
 
-    private String productJson(String sku, String make, String model, String year, Integer category) {
-        var request = new org.osyntra.osyntrainventorymanagement.dtos.product.ProductRequest(
-                sku, null, "Brake Pad", "Front brake pad", new java.math.BigDecimal("25.50"), category, make, model, year);
-        return objectMapper.writeValueAsString(request);
+    @Test
+    void corsAllowsConfiguredSeparateFrontendAndRejectsUnknownOrigins() throws Exception {
+        mvc.perform(options("/api/products").header("Origin", "http://localhost:5173")
+                        .header("Access-Control-Request-Method", "POST").header("Access-Control-Request-Headers", "authorization,content-type"))
+                .andExpect(status().isOk()).andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:5173"));
+        mvc.perform(options("/api/products").header("Origin", "https://untrusted.example")
+                .header("Access-Control-Request-Method", "POST")).andExpect(status().isForbidden());
     }
 }

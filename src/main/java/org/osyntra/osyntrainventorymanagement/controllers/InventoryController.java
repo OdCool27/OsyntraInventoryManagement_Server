@@ -2,62 +2,73 @@ package org.osyntra.osyntrainventorymanagement.controllers;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
-import org.osyntra.osyntrainventorymanagement.dtos.inventory.*;
+import org.osyntra.osyntrainventorymanagement.dtos.StockDtos.*;
+import org.osyntra.osyntrainventorymanagement.dtos.inventory.ReorderRequest;
 import org.osyntra.osyntrainventorymanagement.services.InventoryService;
 import org.springframework.http.HttpStatus;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+
 import java.util.*;
 
 @RestController
 @RequestMapping("/api/inventory")
 @Validated
 public class InventoryController {
-    private final InventoryService inventoryService;
+    private final InventoryService stock;
 
-    public InventoryController(InventoryService inventoryService) {
-        this.inventoryService = inventoryService;
+    public InventoryController(InventoryService stock) {
+        this.stock = stock;
     }
 
     @GetMapping
-    public List<InventoryResponse> findAll(@RequestParam(required = false) String search,
-            @RequestParam(required = false) String category, @RequestParam(required = false) String make,
-            @RequestParam(required = false) String model, @RequestParam(required = false) String year,
-            @RequestParam(defaultValue = "false") boolean lowStock,
-            @RequestParam(defaultValue = "false") boolean outOfStock,
-            @RequestParam(defaultValue = "50") @Min(1) @Max(200) int limit,
-            @RequestParam(defaultValue = "0") @Min(0) int offset) {
-        return inventoryService.findAll(search, category, make, model, year, lowStock, outOfStock, limit, offset);
+    public List<Map<String, Object>> list(@RequestParam(required = false) Integer locationId, @RequestParam(required = false) String search,
+                                          @RequestParam(required = false) String category, @RequestParam(defaultValue = "false") boolean lowStock, @RequestParam(defaultValue = "false") boolean outOfStock,
+                                          @RequestParam(defaultValue = "50") @Min(1) @Max(200) int limit, @RequestParam(defaultValue = "0") @Min(0) int offset) {
+        return stock.list(locationId, search, category, lowStock, outOfStock, limit, offset);
+    }
+
+    @GetMapping("/alerts")
+    public List<Map<String, Object>> alerts(@RequestParam(required = false) Integer locationId) {
+        return stock.list(locationId, null, null, true, false, 200, 0);
+    }
+
+    @GetMapping("/movements")
+    public List<Map<String, Object>> movements(@RequestParam(required = false) Integer locationId, @RequestParam(required = false) UUID productId,
+                                               @RequestParam(defaultValue = "50") @Min(1) @Max(200) int limit, @RequestParam(defaultValue = "0") @Min(0) int offset) {
+        return stock.movements(locationId, productId, limit, offset);
+    }
+
+    @GetMapping("/reasons")
+    public List<Map<String, Object>> reasons() {
+        return stock.reasons();
+    }
+
+    @PostMapping("/reasons")
+    public void reason(@Valid @RequestBody Reason request) {
+        stock.reason(request);
     }
 
     @GetMapping("/{productId}")
-    public InventoryResponse findByProductId(@PathVariable UUID productId) {
-        return inventoryService.findByProductId(productId);
+    public Map<String, Object> get(@PathVariable UUID productId, @RequestParam(required = false) Integer locationId) {
+        return stock.get(productId, locationId);
     }
 
     @PostMapping("/{productId}")
     @ResponseStatus(HttpStatus.CREATED)
-    public InventoryResponse create(@PathVariable UUID productId, @Valid @RequestBody InventoryRequest request) {
-        return inventoryService.create(productId, request);
+    public Map<String, Object> open(@PathVariable UUID productId, @RequestParam(required = false) Integer locationId, @Valid @RequestBody Opening request) {
+        return stock.open(productId, locationId, request);
     }
 
-    @PutMapping("/{productId}/quantity")
-    public InventoryResponse setQuantity(@PathVariable UUID productId, @Valid @RequestBody QuantityRequest request) {
-        return inventoryService.changeQuantity(productId, request.quantity(), true);
-    }
-
-    @PostMapping("/{productId}/add")
-    public InventoryResponse addStock(@PathVariable UUID productId, @Valid @RequestBody StockRequest request) {
-        return inventoryService.changeQuantity(productId, request.quantity(), false);
-    }
-
-    @PostMapping("/{productId}/remove")
-    public InventoryResponse removeStock(@PathVariable UUID productId, @Valid @RequestBody StockRequest request) {
-        return inventoryService.changeQuantity(productId, -request.quantity(), false);
+    @PostMapping("/{productId}/movements")
+    public Map<String, Object> move(@PathVariable UUID productId, @RequestParam(required = false) Integer locationId,
+                                    @Valid @RequestBody Movement request) {
+        return stock.move(productId, locationId, request);
     }
 
     @PutMapping("/{productId}/reorder-level")
-    public InventoryResponse setReorderLevel(@PathVariable UUID productId, @Valid @RequestBody ReorderRequest request) {
-        return inventoryService.setReorderLevel(productId, request.reorderLevel());
+    public Map<String, Object> threshold(@PathVariable UUID productId, @RequestParam(required = false) Integer locationId,
+                                         @Valid @RequestBody ReorderRequest request) {
+        return stock.threshold(productId, locationId, request.reorderLevel());
     }
 }

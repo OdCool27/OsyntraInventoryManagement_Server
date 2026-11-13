@@ -1,130 +1,54 @@
-# Sentra Inventory MVP Progress
+# Osyntra Server MVP Progress
 
-## Current Status
+## Current status
 
-Backend MVP complete and verified on 2026-10-26. PostgreSQL migrations, live HTTP application startup, administrator bootstrap, API integration tests, role enforcement, concurrency and OpenAPI schemas passed. `mvn -q package` succeeded with 17 tests and produced the executable JAR. Frontend intentionally not started.
+Backend phases 1–5 of [the architecture plan](Osyntra_MVP_Architecture_and_Phases_v2.md) are implemented for the local SQLite demonstration. All frontend implementation belongs to the separate frontend project. Real deployment, PostgreSQL migration, offline sync, paid billing, AI and live payments remain deferred.
 
-## Completed
+## Phase acceptance and evidence
 
-- Inspected all original Java files, DTOs, configuration, migrations, Compose and tests.
-- Preserved existing code and plural package names; reused JDBC, Spring Security, SpringDoc and record DTO conventions.
-- Fixed compilation by targeting installed Java 24 instead of unavailable Java 27.
-- Added product/car-part CRUD with deactivation, database-backed categories and combined vehicle/text/category filters.
-- Separated inventory from products; retained legacy reserved quantities without expanding reservation workflows.
-- Added explicit inventory initialization, set/add/remove operations, reorder thresholds, low/out-of-stock queries.
-- Transactional stock changes call PostgreSQL functions with row locking; audit writes share the transaction.
-- Implemented persisted employee authentication, BCrypt, environment-based first-admin bootstrap, role restrictions.
-- Added audit history and summary/low/out-of-stock reports.
-- Added validated requests, sensible HTTP error statuses and Swagger Basic authorization.
-- Documented host application + Docker PostgreSQL workflow in README and README.Docker.md.
-- Prepared portfolio README with feature overview, technology table, architecture diagram, engineering decisions, linked test evidence and explicit MVP limitations.
-- Clarified that custom employee authentication disables Spring's generated default password; documented first-admin setup in .env.
-- Cleared populated administrator values from the publishable .env.example; preserved local .env configuration.
+| Phase | Implemented server behavior | Evidence |
+| --- | --- | --- |
+| 0 — assessment | Reusable JDBC/security baseline retained; obsolete single-business claims/scaffolding removed; endpoints and decisions documented | README, architecture decisions and original cleanup inventory |
+| 1 — foundation/access | Businesses and locations, single-business employee membership, operator provisioning without tenant-data privileges, managed employees, deactivation, last-owner protection, two isolated opt-in demo tenants | API tenant/role/tampering tests, demo seed test, live bootstrap, fresh and populated schema migration tests |
+| 2 — catalog/fitment | Generic product/category CRUD, product archive, per-tenant SKU/barcode lookup, unit/cost/threshold metadata, shared verified vehicle configurations with year ranges and optional engine/trim | Catalog, category, fitment, scanner-code and cross-tenant-link tests |
+| 3 — inventory/counting | Per-location balances, conditional updates, reason-coded ledger, opening stock, CSV template/preview/atomic commit, resumable count sessions, submission/reopen/approval, drift protection, low-stock alert API | Ledger/bounds/location/import/count/reserved-stock tests |
+| 4 — shared commerce | Non-reserving cart preview; POS/ONLINE reservations, five-minute expiry, simulated payment, cancellation, separate refunds, resellable returns, immutable line snapshots, order history and receipts, idempotency and private online capabilities | Commerce state/rollback/token/retry tests plus simultaneous cross-channel last-unit checkout and duplicate-payment test |
+| 5 — reporting/demo/hardening | Stock/value reports, sales by date/channel/product, simulated gross/refund/net totals, audit and order events, paginated CSV export, repeatable automotive/grocery fixtures, demo walkthrough, local consistent backup/restore utility | Reporting/receipt/CORS tests, demo seed repeatability, backup/WAL/restore tests and walkthrough |
+| 6 — post-MVP review | Review agenda and deployment gates documented | POST_MVP_REVIEW.md; formal review not yet conducted |
+| 7 — future capabilities | Deferred by the approved plan | No real payments, AI, cloud hosting, subscriptions or offline synchronization added |
 
-## Partially Completed
+## Policies used for this implementation
 
-- None in the backend MVP.
+The proposed MVP defaults were used while the implementation proceeded: platform operators provision metadata/accounts without routine tenant data access; five-minute checkout reservations; approval for all stock counts; stock stays sellable during counting; whole-unit quantities; one initial demo location per tenant. Multiple basic locations are supported.
 
-## Not Started
+Unfulfilled paid cancellations restore all stock and record a full simulated refund. Fulfilled orders need an explicit full-order return; only resellable returns restore stock. Refund-only commands leave inventory unchanged. These policies are recorded in ARCHITECTURE_DECISIONS.md and can be revised as explicit product changes.
 
-- Optional frontend: no frontend framework or application existed; backend-only delivery.
-- Future integrations and expanded cart/order workflows remain outside scope.
+## Database preservation
 
-## Database Migrations Added
+- The local .env and existing PostgreSQL credentials are preserved.
+- SQLite V1 remains unchanged; V2–V6 incrementally introduce tenancy, catalog fitment, stock ledger/counts, simulated commerce and repeatable demo/scanner-code support.
+- Populated V1 data migrates to a single “Existing business” and “Main” location. Accounts, hashes, quantities, reserved balances and audit records are retained.
+- Historical PostgreSQL V5–V7 contents remain unchanged and V8 retains the prior cleanup's role mapping. The new SQLite schema has not been ported to PostgreSQL.
+- PostgreSQL configuration and Compose volume remain available. A startup guard prevents running new MVP services against that incomplete database schema before the post-MVP migration review.
 
-All under `src/main/resources/db/migration/`:
+## Verification
 
-- `V5__establish_base_schema.sql`: intended V1–V4 tables with valid SQL.
-- `V6__separate_inventory_and_categories.sql`: inventory/category tables, stock transfer, removal of product stock columns, active flag, uniqueness/indexes.
-- `V7__audit_and_inventory_functions.sql`: audit table and two working PostgreSQL functions.
+The earlier inventory baseline had 20 passing tests. On 2026-11-13, `mvn -q clean package` passed **32 Java tests**, zero failures/errors/skips, and generated the executable JAR. Coverage now includes full tenant/catalog/count/commerce scenarios, populated database upgrades, demo fixtures and deployment-profile guarding.
 
-Original V1–V4 files were not edited. Their single-underscore names are ignored by Flyway, and the source SQL contained syntax errors. Fresh-schema migrations succeeded against PostgreSQL 17.11. No database reset or volume deletion was performed.
+Both Python backup tests pass: consistent WAL snapshots, restore, integrity checks and overwrite refusal. An additional seeded-database restore drill recovered two demo tenants, two products and 18 stock units, with selected account/history row counts matching the snapshot. Environment and historical PostgreSQL migration preservation checks pass, as does git diff --check.
 
-## Models Added or Modified
+Two issues found during verification were resolved: SQLite's populated-table foreign-key/default restriction required rebuilding/copying employees/audit, and request rollback tests needed actual request transactions instead of a surrounding test transaction.
 
-Under `src/main/java/org/osyntra/osyntrainventorymanagement/models/`:
+## Handoff
 
-- Added `Inventory.java`, `AuditLog.java`.
-- Removed stock fields/accessors from `Product.java` and adjusted `CarPart.java` constructor.
-- Existing Employee/User roles and status reused.
+- [README.md](README.md): startup, configuration, endpoint inventory, role policies and request examples.
+- [DEMO.md](DEMO.md): local end-to-end demonstration.
+- [ARCHITECTURE_DECISIONS.md](ARCHITECTURE_DECISIONS.md): scope, business rules, data preservation and test evidence.
+- [POST_MVP_REVIEW.md](POST_MVP_REVIEW.md): formal security/deployment/PostgreSQL review agenda.
+- ProductService and ProductRepository: tenant-scoped catalog transactions.
+- StockLedger: all stock/reservation mutations and quantitative audit.
+- StockCountService / OpeningImportService: controlled onboarding and physical counts.
+- CommerceService: shared channel lifecycle, retry safety and simulated financial state.
+- scripts/sqlite_backup.py: optional local backup/restore tooling.
 
-## DTOs Added or Modified
-
-Under the Java package's `dtos/`:
-
-- `product/ProductRequest.java`, `ProductResponse.java`, `CategoryRequest.java`, `CategoryResponse.java`.
-- `inventory/InventoryRequest.java`, `InventoryResponse.java`, `InventorySummary.java`, `QuantityRequest.java`, `StockRequest.java`, `ReorderRequest.java`.
-- Completed `user/CreateEmployeeRequest.java`; added `user/EmployeeResponse.java`.
-- Other original user DTO placeholders remain unused and unchanged.
-
-## Repositories Added or Modified
-
-Under `repositories/`:
-
-- `ProductRepository.java`: JDBC CRUD, category operations, bound combined filters.
-- `InventoryRepository.java`: stock creation/locking, function calls, inventory filters and summary.
-- `EmployeeRepository.java`: persisted employee lookup/creation and bootstrap lock.
-- `AuditRepository.java`: append and filtered/paged history reads.
-
-## Services Added or Modified
-
-Under `services/`:
-
-- `ProductService.java`, `InventoryService.java`, `EmployeeService.java`, `AuditService.java`, `ReportService.java`.
-- Mutations use Spring transactions; the audit actor is resolved server-side.
-- Inactive products reject changes; insufficient stock and duplicates return conflicts.
-
-## Controllers Added or Modified
-
-Under `controllers/`:
-
-- `ProductController.java`, `CategoryController.java`, `InventoryController.java`.
-- `EmployeeController.java`, `AuthController.java`, `ReportController.java`, `AuditController.java`.
-- `ApiExceptionHandler.java` supplies ProblemDetail responses for application/validation/database conflicts.
-
-Under `config/`:
-
-- `SecurityConfig.java`: HTTP Basic, stateless requests, role-based route permissions.
-- `AdminInitializer.java`: initial ADMIN from environment, only with no existing employees.
-- `OpenApiConfig.java`: API information and Swagger authentication.
-
-## Stored Procedures / Functions
-
-- `adjust_inventory(p_product_id UUID, p_amount INT, p_set BOOLEAN)`: locked atomic adjustment/set, protects reserved stock and integer bounds, updates timestamp. Called by `InventoryRepository.adjust()`.
-- `low_stock_inventory()`: active stock records with available quantity <= reorder threshold. Used by inventory filters and low-stock reports.
-
-## Tests
-
-- `InventoryApiTests.java`: 14 passing test invocations, real PostgreSQL, MockMvc, transactional rollback. Covers CRUD, inventory, reports, audit, validation, authentication, permissions, filters, duplicates, database function rejection, Swagger schemas/UI.
-- `InventoryConcurrencyTests.java`: passing concurrent removal test; one succeeds and one conflicts, final quantity and audit count verified.
-- Existing `OsyntraInventoryManagementApplicationTests.java`: passing; now uses isolated test schema.
-- `LiveServerTests.java`: passing actual HTTP server check, randomly generated fresh schema, admin bootstrap credentials, OpenAPI and Swagger UI.
-- Final `mvn -q package`: 17 tests, zero failures/errors/skips; exit code 0.
-- Executable artifact: `target/OsyntraInventoryManagement-0.0.1-SNAPSHOT.jar`.
-- Standard command: `mvn clean test` with Compose PostgreSQL running and .env configured.
-
-## Known Issues
-
-- Expected Flyway warning for four ignored historical migration filenames; leave them unchanged.
-- The previously staged .env has been removed from Git's index while preserving the local file. .gitignore excludes environment files, build output, logs, JVM diagnostics and IDE/OS files; .env.example remains trackable. No credentials were printed or changed.
-- Original optional Dockerfile was not updated/tested; run Spring on the host.
-- HTTP Basic should use HTTPS outside localhost. No token auth, employee editing, reservation management or reactivation endpoint is included.
-- Test schemas require CREATE permission; do not run simultaneous test suites against the same database.
-- Existing Java/Maven/Mockito toolchain emits deprecation/agent warnings; these do not fail tests.
-- No seeded application employees/products were added to public schema; bootstrap credentials are user-supplied.
-
-## Recommended Next Step
-
-Set SENTRA_ADMIN_EMAIL and SENTRA_ADMIN_PASSWORD in the local environment or .env, run `docker compose up -d postgres` and `mvn spring-boot:run`, then follow README's Swagger walkthrough. Backend implementation and verification are complete; optional frontend work can be scoped separately.
-
-## Exact Files To Continue From
-
-- `README.md`: setup, API workflow and limitations.
-- `src/main/java/org/osyntra/osyntrainventorymanagement/services/InventoryService.java`: stock transaction/business behavior.
-- `src/main/java/org/osyntra/osyntrainventorymanagement/repositories/InventoryRepository.java`: inventory SQL and function integration.
-- `src/main/java/org/osyntra/osyntrainventorymanagement/config/SecurityConfig.java`: role policy.
-- `src/main/java/org/osyntra/osyntrainventorymanagement/config/AdminInitializer.java`: bootstrap.
-- `src/main/resources/db/migration/V5__establish_base_schema.sql`, `V6__separate_inventory_and_categories.sql`, `V7__audit_and_inventory_functions.sql`.
-- `src/test/java/org/osyntra/osyntrainventorymanagement/InventoryApiTests.java`.
-- `src/test/java/org/osyntra/osyntrainventorymanagement/InventoryConcurrencyTests.java`.
-- `src/test/java/org/osyntra/osyntrainventorymanagement/LiveServerTests.java`.
+Next work outside this server MVP: build the separate frontend against these APIs, perform the formal post-MVP review, then authorize any real-business pilot separately.

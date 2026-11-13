@@ -6,16 +6,19 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
+
 import java.util.*;
 
 @Service
 public class ProductService {
     private final ProductRepository productRepository;
     private final AuditService auditService;
+    private final TenantContext tenant;
 
-    public ProductService(ProductRepository productRepository, AuditService auditService) {
+    public ProductService(ProductRepository productRepository, AuditService auditService, TenantContext tenant) {
         this.productRepository = productRepository;
         this.auditService = auditService;
+        this.tenant = tenant;
     }
 
     public ProductResponse findById(UUID id) {
@@ -32,13 +35,13 @@ public class ProductService {
         return product;
     }
 
-    public List<ProductResponse> findAll(String search, String category, String make, String model,
-                                         String year, boolean includeInactive, int limit, int offset) {
-        return productRepository.findAll(search, category, make, model, year, includeInactive, limit, offset);
+    public List<ProductResponse> findAll(String search, String category, boolean includeInactive, int limit, int offset) {
+        return productRepository.findAll(search, category, includeInactive, limit, offset);
     }
 
     @Transactional
     public ProductResponse create(ProductRequest request) {
+        tenant.requireRole("OWNER", "MANAGER");
         validateCategory(request.categoryId());
         UUID id = productRepository.create(request);
         ProductResponse product = findById(id);
@@ -48,6 +51,7 @@ public class ProductService {
 
     @Transactional
     public ProductResponse update(UUID id, ProductRequest request) {
+        tenant.requireRole("OWNER", "MANAGER");
         ProductResponse previous = lockActive(id);
         validateCategory(request.categoryId());
         productRepository.update(id, request);
@@ -58,6 +62,7 @@ public class ProductService {
 
     @Transactional
     public void deactivate(UUID id) {
+        tenant.requireRole("OWNER", "MANAGER");
         ProductResponse previous = lockActive(id);
         productRepository.deactivate(id);
         auditService.log("PRODUCT_DEACTIVATED", "PRODUCT", id, previous.active(), false);
@@ -69,6 +74,7 @@ public class ProductService {
 
     @Transactional
     public CategoryResponse createCategory(CategoryRequest request) {
+        tenant.requireRole("OWNER", "MANAGER");
         CategoryResponse category = productRepository.createCategory(request.name());
         auditService.log("CATEGORY_CREATED", "CATEGORY", category.id(), null, category.name());
         return category;
@@ -78,5 +84,26 @@ public class ProductService {
         if (id != null && !productRepository.categoryExists(id)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Category not found");
         }
+    }
+
+    public CategoryResponse category(int id) {
+        return productRepository.category(id).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Category not found"));
+    }
+
+    @Transactional
+    public CategoryResponse updateCategory(int id, CategoryRequest request) {
+        tenant.requireRole("OWNER", "MANAGER");
+        var old = category(id);
+        productRepository.updateCategory(id, request.name());
+        auditService.log("CATEGORY_UPDATED", "CATEGORY", id, old.name(), request.name());
+        return category(id);
+    }
+
+    @Transactional
+    public void deleteCategory(int id) {
+        tenant.requireRole("OWNER", "MANAGER");
+        var old = category(id);
+        productRepository.deleteCategory(id);
+        auditService.log("CATEGORY_DELETED", "CATEGORY", id, old.name(), null);
     }
 }

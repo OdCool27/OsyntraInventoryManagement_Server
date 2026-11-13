@@ -1,19 +1,15 @@
-### Run PostgreSQL for the MVP
+# Preserved PostgreSQL setup
 
-Start Docker Desktop, configure POSTGRES_DB, POSTGRES_USER and POSTGRES_PASSWORD
-in the local .env file, then run:
+The MVP server and automated tests use SQLite. Docker is unnecessary for normal development and testing.
+
+The existing .env database credentials, PostgreSQL service/container name, localhost:5433 port mapping and persistent Compose volume remain unchanged. To start the retained database service for later migration work:
 
 ```powershell
 docker compose up -d postgres
-mvn spring-boot:run
 ```
 
-Compose runs PostgreSQL 17 only, bound to localhost:5433, with persistent storage.
-The Spring application runs on the host and applies Flyway migrations on startup.
-Set SENTRA_ADMIN_EMAIL and SENTRA_ADMIN_PASSWORD for first-administrator creation.
+Connection bindings remain in application-postgres.properties. Historical PostgreSQL migration versions/names/contents V5–V7 are preserved; V8 maps legacy employee roles. They are stored separately from SQLite migrations.
 
-Open http://localhost:8080/swagger-ui/index.html and use Authorize.
-See [README.md](README.md) for environment configuration, tests and API examples.
+The new tenant, ledger, count and commerce schema currently targets SQLite. Starting the server with the postgres profile deliberately fails before database initialization, rather than running incomplete services against the retained database. Complete the schema/data migration and rerun tenant/concurrency/restore tests against PostgreSQL during [the post-MVP review](POST_MVP_REVIEW.md).
 
-The existing Dockerfile is optional and was not part of MVP verification.
-Cloud deployment and application containerization are outside this MVP.
+No SQLite data is automatically transferred, no PostgreSQL data is reset, and no volume is deleted. The former untested application Dockerfile was removed during baseline cleanup. Application containerization/cloud deployment remain future reviewed work.

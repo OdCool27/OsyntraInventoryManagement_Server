@@ -1,8 +1,8 @@
 package org.osyntra.osyntrainventorymanagement.dtos.user;
 
-import org.osyntra.osyntrainventorymanagement.models.EmployeeRole;
-import org.osyntra.osyntrainventorymanagement.models.UserStatus;
+import org.osyntra.osyntrainventorymanagement.models.*;
 
 public record EmployeeResponse(Integer id, String employeeId, String firstName, String lastName,
-                               String email, String jobTitle, EmployeeRole role, UserStatus status) {
+                               String email, String jobTitle, EmployeeRole role, UserStatus status, Integer businessId,
+                               boolean operator) {
 }
