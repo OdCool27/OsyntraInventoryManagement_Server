@@ -25,6 +25,15 @@ public class CommandService {
         return rows.getFirst().get("entity_id").toString();
     }
 
+    public String replayCompatible(int business, String requestId, Object command, String legacy) {
+        var rows = db.rows("SELECT fingerprint,entity_id FROM command_receipts WHERE business_id=? AND request_id=?", business, requestId);
+        if (rows.isEmpty()) return null;
+        String stored = rows.getFirst().get("fingerprint").toString();
+        if (!stored.equals(hash(command.toString())) && (legacy == null || !stored.equals(hash(legacy))))
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Request ID was already used for a different command");
+        return rows.getFirst().get("entity_id").toString();
+    }
+
     public void save(int business, String requestId, Object command, Object entityId) {
         db.update("INSERT INTO command_receipts(business_id,request_id,fingerprint,entity_id) VALUES(?,?,?,?)", business, requestId, hash(command.toString()), entityId.toString());
     }

@@ -8,9 +8,9 @@ import io.swagger.v3.oas.annotations.enums.SecuritySchemeType;
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
-@OpenAPIDefinition(info = @Info(title = "Osyntra Inventory Management Server", version = "0.0.1",
-        description = "Local inventory baseline. See MVP_PROGRESS.md for remaining architecture phases."),
-        security = @SecurityRequirement(name = "basicAuth"))
-@SecurityScheme(name = "basicAuth", type = SecuritySchemeType.HTTP, scheme = "basic")
+@OpenAPIDefinition(info = @Info(title = "Orvexa API — Osyntra", version = "0.0.1",
+        description = "Orvexa inventory and simulated POS backend by Osyntra. SQLite demonstration; see ORVEXA_B0_ASSESSMENT.md for the staged implementation plan."),
+        security = @SecurityRequirement(name = "bearerAuth"))
+@SecurityScheme(name = "bearerAuth", type = SecuritySchemeType.HTTP, scheme = "bearer", bearerFormat = "Opaque revocable session token")
 public class OpenApiConfig {
 }

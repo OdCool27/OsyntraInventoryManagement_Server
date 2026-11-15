@@ -13,8 +13,8 @@ public class CorsConfig {
         CorsConfiguration config = new CorsConfiguration();
         config.setAllowedOrigins(Arrays.stream(origins.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList());
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-        config.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Order-Token"));
-        config.setExposedHeaders(List.of("Content-Disposition"));
+        config.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Order-Token", "X-Request-ID"));
+        config.setExposedHeaders(List.of("Content-Disposition", "X-Request-ID"));
         config.setAllowCredentials(false);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/api/**", config);

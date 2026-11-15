@@ -58,7 +58,7 @@ public class DemoInitializer implements ApplicationRunner {
             throw new IllegalStateException("The demo profile requires OSYNTRA_DEMO_PASSWORD (12–72 characters, at most 72 UTF-8 bytes)");
         var previous = SecurityContextHolder.getContext().getAuthentication();
         try {
-            var operators = db.rows("SELECT email FROM users WHERE is_operator=1 AND status='ACTIVE' ORDER BY id LIMIT 1");
+            var operators = db.rows("SELECT u.email FROM users u JOIN platform_staff s ON s.user_id=u.id WHERE s.active=1 AND s.role IN('SUPER_ADMIN','PROVISIONER') AND u.status='ACTIVE' ORDER BY u.id LIMIT 1");
             String operator;
             if (operators.isEmpty()) {
                 operator = "operator@demo.osyntra.local";
@@ -66,6 +66,7 @@ public class DemoInitializer implements ApplicationRunner {
                 e.setOperator(true);
                 e.setBusinessId(null);
                 employees.save(e);
+                confirmDemoIdentity(operator);
             } else operator = string(operators.getFirst(), "email");
             for (String key : List.of("automotive", "grocery")) {
                 if (!db.rows("SELECT seed_key FROM demo_seeds WHERE seed_key=?", key).isEmpty()) continue;
@@ -74,9 +75,12 @@ public class DemoInitializer implements ApplicationRunner {
                 var owner = new CreateEmployeeRequest("Demo", "Owner", ownerEmail, password, "Owner", EmployeeRole.OWNER);
                 int business = integer(tenancy.provision(new TenancyDtos.Provision(
                         key.equals("automotive") ? "Osyntra Demo Auto Parts" : "Osyntra Demo Grocery", "Main", "JMD", 3, owner)), "id");
+                confirmDemoIdentity(ownerEmail);
                 login(ownerEmail, "OWNER");
-                for (EmployeeRole role : List.of(EmployeeRole.MANAGER, EmployeeRole.CLERK, EmployeeRole.CASHIER))
+                for (EmployeeRole role : List.of(EmployeeRole.MANAGER, EmployeeRole.CLERK, EmployeeRole.CASHIER)) {
                     staff.create(new CreateEmployeeRequest("Demo", role.name(), key + "." + role.name().toLowerCase(Locale.ROOT) + "@demo.osyntra.local", password, role.name(), role));
+                    confirmDemoIdentity(key + "." + role.name().toLowerCase(Locale.ROOT) + "@demo.osyntra.local");
+                }
                 boolean auto = key.equals("automotive");
                 var p = products.create(new ProductRequest(auto ? "AF-CIVIC-01" : "RICE-1KG", auto ? "DEMO1001" : "DEMO2001",
                         auto ? "Honda Civic air filter (demo fixture)" : "Rice 1 kg", auto ? "Structured compatibility demonstration fixture" : "Grocery demonstration fixture",
@@ -96,5 +100,13 @@ public class DemoInitializer implements ApplicationRunner {
 
     private void login(String email, String role) {
         SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(email, "unused", AuthorityUtils.createAuthorityList("ROLE_" + role)));
+    }
+
+    private void confirmDemoIdentity(String email) {
+        if (!email.endsWith("@demo.osyntra.local"))
+            throw new IllegalArgumentException("Only explicit demo fixtures are preverified");
+        db.update("UPDATE users SET email_verified=1 WHERE email=?", email);
+        db.update("UPDATE identity_tokens SET consumed_ms=? WHERE user_id IN(SELECT id FROM users WHERE email=?) AND consumed_ms IS NULL", System.currentTimeMillis(), email);
+        db.update("UPDATE email_outbox SET status='CANCELLED' WHERE user_id IN(SELECT id FROM users WHERE email=?) AND status IN('PENDING','FAILED')", email);
     }
 }

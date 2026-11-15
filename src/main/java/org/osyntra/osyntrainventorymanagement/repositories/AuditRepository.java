@@ -16,16 +16,17 @@ public class AuditRepository {
         this.tenant = tenant;
     }
 
-    public void create(int userId, String action, String entityType, String entityId, String oldValue, String newValue) {
+    public void create(int userId, String action, String entityType, String entityId, String oldValue, String newValue, Integer location) {
         jdbcClient.sql("""
-                        INSERT INTO audit_logs(user_id, action, entity_type, entity_id, old_value, new_value, business_id)
-                        VALUES (:user, :action, :type, :id, :old, :new, :business)
+                        INSERT INTO audit_logs(user_id, action, entity_type, entity_id, old_value, new_value, business_id, location_id)
+                        VALUES (:user, :action, :type, :id, :old, :new, :business, :location)
                         """).param("user", userId).param("action", action).param("type", entityType)
-                .param("id", entityId).param("old", oldValue).param("new", newValue).param("business", tenant.businessId()).update();
+                .param("id", entityId).param("old", oldValue).param("new", newValue).param("business", tenant.businessId()).param("location", location).update();
     }
 
     public List<AuditLog> findAll(String entityType, String entityId, int limit, int offset) {
         StringBuilder sql = new StringBuilder("SELECT * FROM audit_logs WHERE business_id = :business");
+        if (!tenant.actor().hasAllBranches()) sql.append(tenant.locationPredicate("location_id"));
         Map<String, Object> params = new HashMap<>();
         params.put("business", tenant.businessId());
         if (entityType != null) {
@@ -42,6 +43,6 @@ public class AuditRepository {
         return jdbcClient.sql(sql.toString()).params(params).query((rs, row) -> new AuditLog(
                 rs.getLong("id"), rs.getInt("user_id"), rs.getString("action"), rs.getString("entity_type"),
                 rs.getString("entity_id"), rs.getString("old_value"), rs.getString("new_value"),
-                rs.getTimestamp("created_at").toInstant())).list();
+                DatabaseDialect.utcInstant(rs, "created_at"))).list();
     }
 }

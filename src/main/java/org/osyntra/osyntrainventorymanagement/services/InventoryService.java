@@ -29,6 +29,11 @@ public class InventoryService {
         this.audit = audit;
     }
 
+    String availabilitySql() {
+        // Only the server clock's ISO date enters this SQL fragment; all resource inputs remain bound parameters.
+        return "CASE WHEN p.batch_tracked=1 THEN (SELECT coalesce(sum(b.quantity_on_hand-b.quantity_reserved),0) FROM stock_batches b WHERE b.business_id=i.business_id AND b.location_id=i.location_id AND b.product_id=i.product_id AND (b.expires_on IS NULL OR b.expires_on>='" + ledger.today() + "')) ELSE i.quantity_on_hand-i.quantity_reserved END";
+    }
+
     public Map<String, Object> get(UUID product, Integer location) {
         return get(tenant.businessId(), tenancy.locationId(location), product.toString());
     }
@@ -39,7 +44,7 @@ public class InventoryService {
                  (i.quantity_on_hand-i.quantity_reserved<=i.reorder_level) AS low_stock
                 FROM inventory i JOIN products p ON p.id=i.product_id AND p.business_id=i.business_id
                 WHERE i.business_id=? AND i.location_id=? AND i.product_id=?
-                """, business, location, product);
+                """.replace("i.quantity_on_hand-i.quantity_reserved", availabilitySql()), business, location, product);
     }
 
     public List<Map<String, Object>> list(Integer location, String search, String category, boolean low, boolean out, int limit, int offset) {
@@ -57,7 +62,7 @@ public class InventoryService {
                          AND (?=0 OR i.quantity_on_hand-i.quantity_reserved<=i.reorder_level)
                          AND (?=0 OR i.quantity_on_hand-i.quantity_reserved=0)
                         ORDER BY p.item_name,p.id LIMIT ? OFFSET ?
-                        """, business, place, "%" + Objects.toString(search, "") + "%", "%" + Objects.toString(search, "") + "%",
+                        """.replace("i.quantity_on_hand-i.quantity_reserved", availabilitySql()), business, place, "%" + Objects.toString(search, "") + "%", "%" + Objects.toString(search, "") + "%",
                 category, category, low ? 1 : 0, out ? 1 : 0, limit, offset);
     }
 
@@ -74,7 +79,7 @@ public class InventoryService {
                 product.toString(), business, place, r.reorderLevel() == null ? ledger.threshold(business, product.toString()) : r.reorderLevel());
         ledger.change(business, place, product.toString(), r.quantityOnHand(), 0, "OPENING", r.reason(), r.notes(), tenant.actor().getId(), "EMPLOYEE", r.requestId());
         commands.save(business, r.requestId(), command, product);
-        audit.log("OPENING_COUNT", "INVENTORY", product, null, r);
+        audit.logLocation("OPENING_COUNT", "INVENTORY", product, null, r, place);
         return get(product, place);
     }
 
@@ -92,7 +97,7 @@ public class InventoryService {
         long delta = r.type().equals("DAMAGE") ? -(long) r.quantity() : r.quantity();
         ledger.change(business, place, product.toString(), delta, 0, r.type(), r.reason(), r.notes(), tenant.actor().getId(), "EMPLOYEE", r.requestId());
         commands.save(business, r.requestId(), command, product);
-        audit.log("STOCK_" + r.type(), "INVENTORY", product, null, r);
+        audit.logLocation("STOCK_" + r.type(), "INVENTORY", product, null, r, place);
         return get(product, place);
     }
 
@@ -103,8 +108,9 @@ public class InventoryService {
         int place = tenancy.locationId(location);
         ledger.activeProduct(business, product.toString());
         var old = get(product, place);
-        db.update("UPDATE inventory SET reorder_level=? WHERE business_id=? AND location_id=? AND product_id=?", level, business, place, product.toString());
-        audit.log("REORDER_LEVEL_CHANGED", "INVENTORY", product, old.get("reorder_level"), level);
+        db.update("UPDATE products SET min_stock_threshold=? WHERE business_id=? AND id=?", level, business, product.toString());
+        db.update("UPDATE inventory SET reorder_level=? WHERE business_id=? AND product_id=?", level, business, product.toString());
+        audit.logLocation("REORDER_LEVEL_CHANGED", "INVENTORY", product, old.get("reorder_level"), level, place);
         return get(product, place);
     }
 

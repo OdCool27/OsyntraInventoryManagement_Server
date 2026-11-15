@@ -4,6 +4,7 @@ import org.osyntra.osyntrainventorymanagement.models.AuditLog;
 import org.osyntra.osyntrainventorymanagement.repositories.*;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
+
 import java.util.List;
 
 @Service
@@ -17,10 +18,14 @@ public class AuditService {
     }
 
     public void log(String action, String entityType, Object entityId, Object oldValue, Object newValue) {
+        logLocation(action, entityType, entityId, oldValue, newValue, null);
+    }
+
+    public void logLocation(String action, String entityType, Object entityId, Object oldValue, Object newValue, Integer location) {
         String email = SecurityContextHolder.getContext().getAuthentication().getName();
         int userId = employeeRepository.findByEmail(email).orElseThrow().getId();
         auditRepository.create(userId, action, entityType, entityId.toString(),
-                oldValue == null ? null : oldValue.toString(), newValue == null ? null : newValue.toString());
+                oldValue == null ? null : oldValue.toString(), newValue == null ? null : newValue.toString(), location);
     }
 
     public List<AuditLog> findAll(String entityType, String entityId, int limit, int offset) {

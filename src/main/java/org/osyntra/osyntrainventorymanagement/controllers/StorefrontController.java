@@ -6,6 +6,7 @@ import org.osyntra.osyntrainventorymanagement.dtos.CommerceDtos.*;
 import org.osyntra.osyntrainventorymanagement.dtos.product.ProductResponse;
 import org.osyntra.osyntrainventorymanagement.repositories.*;
 import org.osyntra.osyntrainventorymanagement.services.*;
+import org.osyntra.osyntrainventorymanagement.payments.PricingService;
 import org.springframework.http.*;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
@@ -20,12 +21,16 @@ public class StorefrontController {
     private final CommerceService commerce;
     private final TenancyService tenancy;
     private final MvpStore db;
+    private final PricingService pricing;
+    private final StockLedger ledger;
 
-    public StorefrontController(ProductRepository products, CommerceService commerce, TenancyService tenancy, MvpStore db) {
+    public StorefrontController(ProductRepository products, CommerceService commerce, TenancyService tenancy, MvpStore db, PricingService pricing, StockLedger ledger) {
         this.products = products;
         this.commerce = commerce;
         this.tenancy = tenancy;
         this.db = db;
+        this.pricing = pricing;
+        this.ledger = ledger;
     }
 
     @PostMapping("/cart")
@@ -41,17 +46,18 @@ public class StorefrontController {
                                               @RequestParam(defaultValue = "50") @Min(1) @Max(200) int limit, @RequestParam(defaultValue = "0") @Min(0) int offset) {
         db.one("SELECT id FROM businesses WHERE id=? AND active=1", business);
         int location = tenancy.locationId(business, locationId);
-        return products.search(business, search, category, barcode, make, model, year, engine, trim, false, limit, offset).stream().map(p -> {
+        return products.search(business, search, category, barcode, make, model, year, engine, trim, false, limit, offset).stream().filter(p -> !p.productKind().equals("PARENT")).map(p -> {
             Map<String, Object> publicProduct = new LinkedHashMap<>();
             publicProduct.put("id", p.itemId());
             publicProduct.put("sku", p.sku());
             publicProduct.put("barcode", p.barcode());
             publicProduct.put("name", p.itemName());
             publicProduct.put("description", p.itemDescription());
-            publicProduct.put("price", p.unitPrice());
+            var price = pricing.quote(business, location, p.itemId().toString(), p.unitPrice().movePointRight(2).longValueExact(), null, null, true);
+            publicProduct.put("price", java.math.BigDecimal.valueOf(((Number) price.get("price")).longValue(), 2));
             publicProduct.put("unitOfMeasure", p.unitOfMeasure());
             publicProduct.put("category", p.category());
-            publicProduct.put("available", db.number("SELECT coalesce(sum(quantity_on_hand-quantity_reserved),0) FROM inventory WHERE business_id=? AND location_id=? AND product_id=?", business, location, p.itemId().toString()));
+            publicProduct.put("available", ledger.sellable(business, location, p.itemId().toString()));
             return publicProduct;
         }).toList();
     }

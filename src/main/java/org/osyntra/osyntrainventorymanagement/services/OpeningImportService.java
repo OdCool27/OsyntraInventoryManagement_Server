@@ -59,12 +59,13 @@ public class OpeningImportService {
             }
             db.update("INSERT INTO opening_import_lines(import_id,business_id,row_number,sku,quantity,reorder_level,error) VALUES(?,?,?,?,?,?,?)", id, business, i + 1, sku, quantity, level, error);
         }
-        audit.log("IMPORT_PREVIEWED", "IMPORT", id, null, rows.size() - 1);
+        audit.logLocation("IMPORT_PREVIEWED", "IMPORT", id, null, rows.size() - 1, location);
         return get(id);
     }
 
     public Map<String, Object> get(String id) {
         var result = new LinkedHashMap<>(db.one("SELECT * FROM opening_imports WHERE id=? AND business_id=?", id, tenant.businessId()));
+        tenant.requireLocation(integer(result, "location_id"));
         result.put("lines", db.rows("SELECT row_number,sku,quantity,reorder_level,error FROM opening_import_lines WHERE import_id=? AND business_id=? ORDER BY row_number", id, tenant.businessId()));
         return result;
     }
@@ -74,6 +75,7 @@ public class OpeningImportService {
         tenant.requireRole("OWNER", "MANAGER");
         int business = tenant.businessId();
         var header = db.one("SELECT * FROM opening_imports WHERE id=? AND business_id=?", id, business);
+        tenant.requireLocation(integer(header, "location_id"));
         if (header.get("status").equals("COMMITTED")) return get(id);
         if (db.number("SELECT count(*) FROM opening_import_lines WHERE import_id=? AND business_id=? AND error IS NOT NULL", id, business) > 0)
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Fix CSV errors in a new preview before committing");
@@ -82,7 +84,7 @@ public class OpeningImportService {
             stock.open(UUID.fromString(string(product, "id")), integer(header, "location_id"), new Opening(integer(line, "quantity"), integer(line, "reorder_level"), "OPENING_COUNT", "CSV " + id, "import:" + id + ":" + line.get("row_number")));
         }
         db.update("UPDATE opening_imports SET status='COMMITTED' WHERE id=? AND business_id=?", id, business);
-        audit.log("IMPORT_COMMITTED", "IMPORT", id, null, "COMMITTED");
+        audit.logLocation("IMPORT_COMMITTED", "IMPORT", id, null, "COMMITTED", integer(header, "location_id"));
         return get(id);
     }
 

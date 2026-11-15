@@ -32,12 +32,12 @@ public class StockCountService {
         tenant.requireRole("OWNER", "MANAGER", "CLERK");
         String id = UUID.randomUUID().toString();
         db.update("INSERT INTO stock_counts(id,business_id,location_id,status,created_by) VALUES(?,?,?,'DRAFT',?)", id, tenant.businessId(), tenancy.locationId(r.locationId()), tenant.actor().getId());
-        audit.log("COUNT_STARTED", "COUNT", id, null, r);
+        audit.logLocation("COUNT_STARTED", "COUNT", id, null, r, tenancy.locationId(r.locationId()));
         return get(id);
     }
 
     public List<Map<String, Object>> list() {
-        return db.rows("SELECT * FROM stock_counts WHERE business_id=? ORDER BY created_at DESC LIMIT 200", tenant.businessId());
+        return db.rows("SELECT * FROM stock_counts WHERE business_id=?" + tenant.locationPredicate("location_id") + " ORDER BY created_at DESC LIMIT 200", tenant.businessId());
     }
 
     public Map<String, Object> get(String id) {
@@ -52,7 +52,9 @@ public class StockCountService {
     }
 
     private Map<String, Object> header(String id) {
-        return db.one("SELECT * FROM stock_counts WHERE id=? AND business_id=?", id, tenant.businessId());
+        var count = db.one("SELECT * FROM stock_counts WHERE id=? AND business_id=?", id, tenant.businessId());
+        tenant.requireLocation(integer(count, "location_id"));
+        return count;
     }
 
     private void editable(Map<String, Object> count) {
@@ -74,7 +76,7 @@ public class StockCountService {
                 INSERT INTO stock_count_lines(count_id,business_id,product_id,expected_quantity,counted_quantity) VALUES(?,?,?,?,?)
                 ON CONFLICT(count_id,product_id) DO UPDATE SET expected_quantity=excluded.expected_quantity,counted_quantity=excluded.counted_quantity
                 """, id, business, productId, expected, r.quantity());
-        audit.log("COUNT_LINE_SAVED", "COUNT", id, null, r);
+        audit.logLocation("COUNT_LINE_SAVED", "COUNT", id, null, r, location);
         return get(id);
     }
 
@@ -85,7 +87,7 @@ public class StockCountService {
         if (db.number("SELECT count(*) FROM stock_count_lines WHERE count_id=? AND business_id=?", id, tenant.businessId()) == 0)
             conflict("Count has no lines");
         db.update("UPDATE stock_counts SET status='SUBMITTED' WHERE id=? AND business_id=?", id, tenant.businessId());
-        audit.log("COUNT_SUBMITTED", "COUNT", id, null, "SUBMITTED");
+        audit.logLocation("COUNT_SUBMITTED", "COUNT", id, null, "SUBMITTED", integer(count, "location_id"));
         return get(id);
     }
 
@@ -95,7 +97,7 @@ public class StockCountService {
         var count = header(id);
         if (!count.get("status").equals("SUBMITTED")) conflict("Only submitted counts can be reopened");
         db.update("UPDATE stock_counts SET status='DRAFT' WHERE id=? AND business_id=?", id, tenant.businessId());
-        audit.log("COUNT_REOPENED", "COUNT", id, null, "DRAFT");
+        audit.logLocation("COUNT_REOPENED", "COUNT", id, null, "DRAFT", integer(count, "location_id"));
         return get(id);
     }
 
@@ -120,7 +122,7 @@ public class StockCountService {
             ledger.change(business, location, product, (long) integer(line, "counted_quantity") - current, 0, "COUNT", "COUNT_APPROVAL", null, tenant.actor().getId(), "EMPLOYEE", id);
         }
         db.update("UPDATE stock_counts SET status='APPROVED',approved_by=? WHERE id=? AND business_id=?", tenant.actor().getId(), id, business);
-        audit.log("COUNT_APPROVED", "COUNT", id, null, "APPROVED");
+        audit.logLocation("COUNT_APPROVED", "COUNT", id, null, "APPROVED", location);
         return get(id);
     }
 

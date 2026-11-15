@@ -24,15 +24,18 @@ public class AdminInitializer implements ApplicationRunner {
     private final Validator validator;
     private final String email;
     private final String password;
+    private final org.osyntra.osyntrainventorymanagement.identity.IdentityService identity;
 
     public AdminInitializer(EmployeeRepository employeeRepository, PasswordEncoder passwordEncoder, Validator validator,
                             @Value("${OSYNTRA_OPERATOR_EMAIL:${SENTRA_ADMIN_EMAIL:}}") String email,
-                            @Value("${OSYNTRA_OPERATOR_PASSWORD:${SENTRA_ADMIN_PASSWORD:}}") String password) {
+                            @Value("${OSYNTRA_OPERATOR_PASSWORD:${SENTRA_ADMIN_PASSWORD:}}") String password,
+                            org.osyntra.osyntrainventorymanagement.identity.IdentityService identity) {
         this.employeeRepository = employeeRepository;
         this.passwordEncoder = passwordEncoder;
         this.validator = validator;
         this.email = email;
         this.password = password;
+        this.identity = identity;
     }
 
     @Override
@@ -55,5 +58,6 @@ public class AdminInitializer implements ApplicationRunner {
         employee.setBusinessId(null);
         employee.setOperator(true);
         employeeRepository.save(employee);
+        identity.requestEmail(employee.getEmail(), false);
     }
 }

@@ -77,14 +77,17 @@ class InventoryApiTests extends MvpTestSupport {
         var edit = Map.of("firstName", "Worker", "lastName", "One", "jobTitle", "Clerk", "role", "CLERK", "status", "DEACTIVATED");
         putJson("/api/employees/" + employee.get("id").asInt(), edit, "MANAGER", 200);
         mvc.perform(get("/api/auth/me").with(httpBasic("worker@test.local", PASSWORD))).andExpect(status().isUnauthorized());
-        putJson("/api/employees/" + ownerId, edit, "OWNER", 409);
-        putJson("/api/employees/" + ownerId, edit, "MANAGER", 403);
+        var ownerEdit = Map.of("firstName", "Test", "lastName", "Employee", "jobTitle", "Clerk", "role", "CLERK", "status", "DEACTIVATED");
+        putJson("/api/employees/" + ownerId, ownerEdit, "OWNER", 409);
+        putJson("/api/employees/" + ownerId, ownerEdit, "MANAGER", 403);
         putJson("/api/employees/" + employee.get("id").asInt(), edit, "OTHER", 404);
     }
 
     @Test
     void authenticatesAndEnforcesOperationalRoles() throws Exception {
-        mvc.perform(get("/api/auth/me").with(httpBasic("owner@test.local", PASSWORD))).andExpect(status().isOk()).andExpect(jsonPath("$.businessId").value(1));
+        mvc.perform(get("/api/auth/me").with(httpBasic("owner@test.local", PASSWORD))).andExpect(status().isUnauthorized());
+        assertEquals("MFA_ENROLL", json(mvc.perform(post("/api/v1/auth/login").contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(Map.of("email", "owner@test.local", "password", PASSWORD)))).andExpect(status().isOk()).andReturn()).get("purpose").asString());
         mvc.perform(get("/api/auth/me").with(httpBasic("owner@test.local", "bad"))).andExpect(status().isUnauthorized());
         mvc.perform(get("/api/products")).andExpect(status().isUnauthorized());
         String p = stocked("PERMISSION", 1);
@@ -213,7 +216,7 @@ class InventoryApiTests extends MvpTestSupport {
         mvc.perform(get("/v3/api-docs")).andExpect(status().isOk())
                 .andExpect(jsonPath("$.paths['/api/orders/{id}/payment']").exists())
                 .andExpect(jsonPath("$.paths['/api/counts/{id}/approve']").exists())
-                .andExpect(jsonPath("$.components.securitySchemes.basicAuth.scheme").value("basic"));
+                .andExpect(jsonPath("$.components.securitySchemes.bearerAuth.scheme").value("bearer"));
         mvc.perform(get("/swagger-ui/index.html")).andExpect(status().isOk());
     }
 

@@ -4,6 +4,11 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.UUID;
+import java.util.Calendar;
+import java.util.TimeZone;
+import java.time.Instant;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 
 /**
  * The few JDBC/SQL differences used by the local MVP and retained PostgreSQL setup.
@@ -34,5 +39,12 @@ public class DatabaseDialect {
 
     public boolean isPostgres() {
         return postgres;
+    }
+
+    /**
+     * SQLite's stored text is UTC; never interpret it in the host computer's timezone.
+     */
+    public static Instant utcInstant(ResultSet result, String column) throws SQLException {
+        return result.getTimestamp(column, Calendar.getInstance(TimeZone.getTimeZone("UTC"))).toInstant();
     }
 }

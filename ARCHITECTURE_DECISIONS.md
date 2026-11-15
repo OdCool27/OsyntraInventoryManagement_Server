@@ -1,8 +1,48 @@
 # Osyntra Server Architecture Decisions
 
+## Orvexa B3–B5 — functional MVP completion
+
+The user authorized B3–B5 together. Existing catalogue/ledger/commerce services are extended rather than replaced. Variant parents cannot be stocked/sold; variants have immutable tenant-local identity. Decimal conversion units resolve exactly to integral base granularity, preserving existing balances. Product thresholds are global; prior location levels are archived. Catalogue imports are bounded atomic preview/commit jobs with safe XLSX parsing and rollback/retry.
+
+Location acquisition value uses six decimal currency places, weighted average for outgoing stock, historical sale-cost snapshots and original-value returns. Legacy valuation/opening costs remain labeled estimates. Optional batches are configured before inventory history, allocated by expiry, rechecked before sale and returned into original batches. Transfers retain dispatched acquisition value in transit and reconcile partial receiving.
+
+Cash and externally confirmed terminal bookkeeping use durable payment attempts/records. UNKNOWN/PENDING stock holds do not expire or release on cancellation; verified reconciliation is required. There is no bank SDK/webhook integration. Simulator routes require explicit development/demo/test enablement. Approved partial reversals derive quantity/amount/tax/cost budgets from historical sales, with no double restock/refund. Confirmed receipts are saved once and reused for download/email; delivery remains the B1 opt-in outbox.
+
+SQLite V9–V11 preserve historical identities/quantities/financial snapshots and old checkout retry fingerprints. [ORVEXA_MVP_B3_B5.md](ORVEXA_MVP_B3_B5.md) contains contracts, arithmetic, limits, verification and manual integration prerequisites. This completes the authorized functional server MVP; frontend, production readiness and B6–B9 remain separate.
+
+## Orvexa B2 — preferences, tax and progressive onboarding
+
+Business/branch preferences use revision checks, with null branch values inheriting centrally. Only explicitly enabled price-mode overrides apply; registration remains business-wide. Tax policies, profile rates and per-product assignments are effective-dated immutable histories, selected by server time. Registered collection requires owner-reviewed configuration. Nonregistered compatibility defaults are explicitly unverified and do not determine legal eligibility.
+
+Tax uses decimal arithmetic and HALF_UP rounding per extended line. Checkout snapshots net/tax/gross, configuration IDs/verification state and receipt branding once; payments, retries and full refunds retain those amounts. Pre-B2 orders keep their totals and receive LEGACY_UNSPECIFIED/snapshot version 0, without invented historical tax. Product profit estimates exclude collected sales tax. Import/landed costs are not sales-tax inputs.
+
+Onboarding stores independently resumable checklist steps/revisions/notes, with current server readiness and stale-completion signals. It does not block the dashboard. SQLite V8 is incremental; existing environment, key, identity and stock/history remain preserved. [ORVEXA_B2_IMPLEMENTATION.md](ORVEXA_B2_IMPLEMENTATION.md) supplies contracts, verification evidence, rounding/compatibility policies and professional validation points. B3–B5 were subsequently implemented as described above.
+
+## Orvexa B1 — identity and branch authority
+
+B1 supersedes the earlier single-business/Basic model. Global users have multiple memberships, one of five fixed tenant roles, and explicit or all-branch grants. Active business comes from a validated opaque Bearer session. Branch access is enforced across existing stock/count/import/order/report services. Platform staff are separate from tenant memberships; there is no tenant support bypass.
+
+Email verification/reset and invitations use expiring hashed single-use tokens. Their encrypted delivery payloads are enqueued transactionally and delivered outside business transactions, with durable leases and bounded retries. The user chose loopback development preview with opt-in SMTP; no external email was sent. MFA is mandatory for Owners/platform staff and optional for others. Seeds and email bodies use a private retained encryption key; restore requires both original key and database. Password resets retain MFA, and privilege changes revoke sessions.
+
+SQLite V7 backfills memberships/platform staff without changing account IDs/password hashes or old stock/history. Legacy emails require verification except explicit demo fixtures. Old employee records remain historical; authority comes from the new tables. Existing .env/PostgreSQL settings remain intact. [ORVEXA_B1_IMPLEMENTATION.md](ORVEXA_B1_IMPLEMENTATION.md) describes API compatibility changes, migration, evidence and manual integration limits. B2 was subsequently authorized and implemented as described above.
+
+The sections below record the earlier B0/MVP decisions historically; B1 takes precedence where they describe Basic login, one membership or deferred identity features.
+
+## Orvexa B0 — audit and foundation
+
+The new Orvexa implementation prompts establish Orvexa as the product and Osyntra as the company, with one phase per review cycle. The user explicitly reaffirmed SQLite for the MVP/tests; PostgreSQL remains an assessed local Docker setup, not a switch in this phase. Docker's Linux engine was unavailable during inspection and no PostgreSQL connection or migration was attempted. Its existing guard/configuration/history remain intact.
+
+B0 preserves existing service boundaries, API paths, Java package/artifact identity, database records and credentials. Product display metadata, logging identity and receipt heading now say Orvexa by Osyntra. The repository's broader gaps, current entity relationship map, staged B1–B9 extension plan and manual integration prerequisites are in ORVEXA_B0_ASSESSMENT.md. Earlier demo completion does not establish compliance with those broader requirements.
+
+Essential foundation changes: GET-only public health/liveness/readiness with hidden details; database-backed readiness; validated UUID request correlation before security; MDC restoration and CORS access to X-Request-ID; shared application/problem+json codes/requestId for filter/controller failures; safe SQL/internal diagnostics; and explicit UTC calendar reads for typed JDBC timestamps. Existing raw map timestamp strings remain UTC by convention pending a versioned response-contract migration. No data migration was added or modified.
+
+The README now directs developers to their ignored local demo-password configuration or a secure prompt instead of publishing a literal credential. Existing demo/operator/PostgreSQL credentials and passwords remain unchanged.
+
+Verification: **41 Java tests passed**, including eight focused foundation tests and a UTC regression test. Packaging initially hit Windows' lock on the running JAR; only the confirmed project listener was restarted, then packaging succeeded. Live health/probes, correlation, OpenAPI identity, 401 errors and all eight existing demo logins passed. The backend runs in sqlite,demo mode on port 8080. B0 stops for review; B1 membership/branch/identity work remains next.
+
 ## Scope and chronology
 
-The [v2 architecture plan](Osyntra_MVP_Architecture_and_Phases_v2.md) defines the target. Repository-specific user instructions take precedence: this project contains the server only; the frontend is separate; SQLite is for the local MVP and testing; environment variables and PostgreSQL credentials/configuration must be preserved. No working SMTP configuration or implementation was found, and none was introduced.
+The [v2 architecture plan](Osyntra_MVP_Architecture_and_Phases_v2.md) defines the target. Repository-specific user instructions take precedence: this project contains the server only; the frontend is separate; SQLite is for the local MVP and testing; environment variables and PostgreSQL credentials/configuration must be preserved. No working SMTP configuration was found in the earlier audit. B1 now supplies opt-in SMTP and local preview, with external provider validation still manual.
 
 On 2026-11-12, Phase 0 cleanup removed unused Product/CarPart inheritance, customer/cart objects, empty user DTOs, invalid ignored migration drafts, duplicate configuration and the untested Java 27 Docker template. Applied PostgreSQL V5–V7 contents were preserved under their own migration location, and the old narrower “MVP complete” claim was removed. The old single-vehicle fields were removed before their replacement.
 

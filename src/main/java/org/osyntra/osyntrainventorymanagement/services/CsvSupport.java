@@ -60,7 +60,8 @@ public final class CsvSupport {
 
     public static String cell(Object value) {
         String text = Objects.toString(value, "");
-        if (!text.isEmpty() && "=+-@".indexOf(text.charAt(0)) >= 0) text = "'" + text;
+        if (!text.stripLeading().isEmpty() && "=+-@".indexOf(text.stripLeading().charAt(0)) >= 0 || !text.isEmpty() && "\t\r\n".indexOf(text.charAt(0)) >= 0)
+            text = "'" + text;
         return "\"" + text.replace("\"", "\"\"") + "\"";
     }
 }

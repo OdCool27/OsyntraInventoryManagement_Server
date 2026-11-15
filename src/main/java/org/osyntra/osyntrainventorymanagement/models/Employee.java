@@ -6,6 +6,33 @@ public class Employee extends User {
     private EmployeeRole role;
     private Integer businessId = 1;
     private boolean operator;
+    private Integer membershipId;
+    private boolean allBranches = true;
+    private String platformRole;
+
+    public Integer getMembershipId() {
+        return membershipId;
+    }
+
+    public void setMembershipId(Integer membershipId) {
+        this.membershipId = membershipId;
+    }
+
+    public boolean hasAllBranches() {
+        return allBranches;
+    }
+
+    public void setAllBranches(boolean allBranches) {
+        this.allBranches = allBranches;
+    }
+
+    public String getPlatformRole() {
+        return platformRole;
+    }
+
+    public void setPlatformRole(String platformRole) {
+        this.platformRole = platformRole;
+    }
 
     public Integer getBusinessId() {
         return businessId;

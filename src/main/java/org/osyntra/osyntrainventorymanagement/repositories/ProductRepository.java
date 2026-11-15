@@ -18,8 +18,8 @@ public class ProductRepository {
             UUID.fromString(rs.getString("id")), rs.getString("sku"), rs.getString("barcode"), rs.getString("item_name"),
             rs.getString("item_description"), rs.getBigDecimal("unit_price"),
             rs.getObject("category_id") == null ? null : rs.getInt("category_id"), rs.getString("category"), rs.getBoolean("active"),
-            rs.getTimestamp("added_at").toInstant(), rs.getTimestamp("modified_at").toInstant(), rs.getBigDecimal("cost"),
-            rs.getString("unit_of_measure"), rs.getObject("min_stock_threshold") == null ? null : rs.getInt("min_stock_threshold"));
+            DatabaseDialect.utcInstant(rs, "added_at"), DatabaseDialect.utcInstant(rs, "modified_at"), rs.getBigDecimal("cost"),
+            rs.getString("unit_of_measure"), rs.getObject("min_stock_threshold") == null ? null : rs.getInt("min_stock_threshold"), rs.getString("product_kind"), rs.getString("parent_id") == null ? null : UUID.fromString(rs.getString("parent_id")), rs.getString("variant_key"));
 
     public ProductRepository(JdbcClient jdbc, DatabaseDialect dialect, TenantContext tenant) {
         this.jdbc = jdbc;
@@ -92,8 +92,8 @@ public class ProductRepository {
     public UUID create(ProductRequest r) {
         UUID id = UUID.randomUUID();
         jdbc.sql("""
-                INSERT INTO products(id,business_id,sku,barcode,item_name,item_description,unit_price,category_id,cost,unit_of_measure,min_stock_threshold)
-                VALUES(:id,:business,:sku,:barcode,:name,:description,:price,:category,:cost,:unit,:threshold)
+                INSERT INTO products(id,business_id,sku,barcode,item_name,item_description,unit_price,category_id,cost,unit_of_measure,min_stock_threshold,product_kind,parent_id,variant_key)
+                VALUES(:id,:business,:sku,:barcode,:name,:description,:price,:category,:cost,:unit,:threshold,:kind,:parent,:variant)
                 """).params(parameters(id, r)).update();
         return id;
     }
@@ -101,7 +101,7 @@ public class ProductRepository {
     public void update(UUID id, ProductRequest r) {
         jdbc.sql("""
                 UPDATE products SET sku=:sku,barcode=:barcode,item_name=:name,item_description=:description,unit_price=:price,
-                 category_id=:category,cost=:cost,unit_of_measure=:unit,min_stock_threshold=:threshold,
+                 category_id=:category,cost=:cost,min_stock_threshold=:threshold,
                  modified_at=%s WHERE id=:id AND business_id=:business
                 """.formatted(dialect.now())).params(parameters(id, r)).update();
     }
@@ -119,6 +119,9 @@ public class ProductRepository {
         p.put("cost", r.cost() == null ? java.math.BigDecimal.ZERO : r.cost());
         p.put("unit", r.unitOfMeasure() == null ? "EACH" : r.unitOfMeasure());
         p.put("threshold", r.minStockThreshold());
+        p.put("kind", r.productKind() == null ? "SIMPLE" : r.productKind());
+        p.put("parent", r.parentId() == null ? null : r.parentId().toString());
+        p.put("variant", r.variantKey());
         return p;
     }
 

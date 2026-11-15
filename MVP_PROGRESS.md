@@ -1,5 +1,29 @@
 # Osyntra Server MVP Progress
 
+## Orvexa transition — B0
+
+The newer [Orvexa implementation plan](Orvexa_Backend_Implementation_Prompts.md) is now the staged product target. The user confirmed SQLite remains the default and tests continue using SQLite. The phase inventory below describes the earlier demonstration, not completion of the broader Orvexa B1–B9 requirements.
+
+[ORVEXA_B0_ASSESSMENT.md](ORVEXA_B0_ASSESSMENT.md) inventories the current entities/APIs, maps the gaps and relationships, and proposes incremental extensions. B0 adds public status-only health/probes, request correlation, consistent security/controller ProblemDetails, UTC-safe typed timestamp reads and Orvexa product metadata without data migrations or package/API renaming.
+
+B0 verification: **41 Java tests passed**, package created, backend restarted in sqlite,demo mode, live health/error checks and all eight existing demo logins passed. No passwords, .env values, migration contents or stored demo business names were changed. The user subsequently authorized B1; its implementation is recorded below.
+
+## Orvexa B1
+
+[B1 implementation](ORVEXA_B1_IMPLEMENTATION.md) adds global identity with multiple memberships, five fixed roles, explicit branch grants, separate platform authority, Bearer sessions and membership switching, invitations, verified signup/reset, required Owner/platform MFA, recovery, persistent rate limiting, encrypted transactional email outbox and scoped audit. The user approved loopback preview plus opt-in SMTP. Existing inventory/commerce paths enforce branch grants. SQLite V7 preserves identities/passwords and prior tenant history; PostgreSQL remains deferred. B2 was subsequently authorized and is recorded below.
+
+The old phases below are historical demonstration milestones; B1 supersedes their single-membership/Basic authentication model. See the B1 guide for current behavior and final validation evidence.
+
+## Orvexa B2
+
+[B2 implementation](ORVEXA_B2_IMPLEMENTATION.md) adds revision-checked business/branch preferences, inherited receipt/notification settings with explicitly controlled price-mode overrides, resumable onboarding checks and immutable effective-dated seller policies, product classifications and decimal tax rates. POS/public checkout and receipts use server-calculated net/tax/gross snapshots. Legacy orders retain their amounts and explicitly unknown historical tax; illustrative templates are not automatically enabled. Owner review is required for registered collection. SQLite V8 extends the existing schema; B3–B5 were subsequently authorized together and are recorded below. Verification: **92 Java tests passed**, packaging and backed-up local V8 upgrade succeeded, all eight demo passwords/settings/tax preview checks passed, and existing environment/identity/stock/order values were preserved.
+
+## Orvexa B3–B5 — functional server MVP
+
+[The B3–B5 implementation guide](ORVEXA_MVP_B3_B5.md) records completed catalogue variants, exact decimal unit conversion, internal labels and bounded CSV/XLSX imports; location acquisition value/actual sale costs, suppliers/partial PO receipts, batches/expiry, counts and value-preserving transfers; authoritative branch pricing/discounts, cash/manual-terminal and demo payment attempts, uncertain-payment holds/reconciliation, approved partial returns/refunds and immutable text/HTML/PDF/email receipt payloads.
+
+SQLite V9–V11 extend the existing schema. Quantities/account hashes and historical order/payment/tax values are preserved. Old location thresholds are archived and consolidated centrally; legacy valuation is explicitly estimated. No external bank API or SMTP delivery is claimed. B6–B9 remain outside the authorized MVP. Final evidence: **122 tests passed**, executable JAR packaged, backed-up V9–V11 upgrade and live endpoint/login checks passed, with environment and historical identity/quantity/financial columns preserved.
+
 ## Current status
 
 Backend phases 1–5 of [the architecture plan](Osyntra_MVP_Architecture_and_Phases_v2.md) are implemented for the local SQLite demonstration. All frontend implementation belongs to the separate frontend project. Real deployment, PostgreSQL migration, offline sync, paid billing, AI and live payments remain deferred.

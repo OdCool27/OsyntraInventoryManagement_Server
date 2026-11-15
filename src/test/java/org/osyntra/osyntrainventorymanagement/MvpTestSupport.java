@@ -40,7 +40,8 @@ abstract class MvpTestSupport {
     @BeforeEach
     void fixtures() {
         // Real request transactions are essential: an outer test transaction would hide request rollbacks.
-        for (String table : List.of("order_events", "simulated_refunds", "simulated_payments", "order_lines", "orders", "command_receipts",
+        for (String table : List.of("promotion_revocations", "legacy_reorder_levels", "sale_reversal_lines", "sale_reversals", "sale_receipts", "payment_events", "payment_attempts", "payment_records", "checkout_promotions", "branch_price_versions", "goods_receipt_lines", "goods_receipts", "purchase_order_lines", "purchase_orders", "suppliers", "stock_transfer_lines", "stock_transfers", "order_batch_allocations", "batch_movements", "stock_batches", "sale_cost_snapshots", "valuation_adjustments", "catalogue_import_rows", "catalogue_imports", "product_units", "onboarding_steps", "branch_preferences", "product_tax_versions", "tax_rate_versions", "tax_profiles", "tax_policy_versions", "business_preferences", "email_outbox", "identity_tokens", "identity_sessions", "mfa_recovery_codes", "invitation_branches", "invitations", "identity_audit", "membership_branches", "platform_staff", "memberships", "auth_rate_limits",
+                "order_events", "simulated_refunds", "simulated_payments", "order_lines", "orders", "command_receipts",
                 "stock_movements", "stock_count_lines", "stock_counts", "opening_import_lines", "opening_imports", "product_fitments",
                 "vehicle_fitments", "inventory", "products", "categories", "platform_audit", "employees", "audit_logs", "users",
                 "locations", "movement_reasons", "demo_seeds", "businesses"))
@@ -67,6 +68,7 @@ abstract class MvpTestSupport {
         e.setBusinessId(business);
         e.setOperator(operator);
         employees.save(e);
+        db.update("UPDATE users SET email_verified=1 WHERE id=?", e.getId());
         return e.getId();
     }
 
